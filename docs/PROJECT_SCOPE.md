@@ -15,6 +15,12 @@ The target is full-frame visual transformation. The intended ONNX contract is:
 
 Height and width should be dynamic once ONNX export is validated.
 
+## Upstream Baseline Versus Forjyn Target
+
+The inherited upstream ONNX weights are useful as a CPU smoke-test baseline. Initial validation showed that they run at fixed `1080x1080` input/output size, but they do not provide dynamic H/W behavior.
+
+Forjyn's target is a shape-preserving ONNX model whose height and width are dynamic. A model that only declares a dynamic batch dimension is not sufficient for the project target.
+
 ## Non-Goals
 
 Forjyn should not treat any of the following as the product solution:
