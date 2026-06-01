@@ -37,4 +37,7 @@
   - `1 x 3 x 1091 x 1279` -> `1 x 3 x 1091 x 1279` in about `1.313s`.
 - Ran a synthetic image smoke test at `1280 x 1090`; output preserved `1280 x 1090`.
 - Conclusion: upstream `candy.pth` is a real compatible baseline that can be exported as dynamic H/W shape-preserving ONNX, but it is not Forjyn-owned and should not be treated as the final project model.
-- Next step: define a model factory manifest and batch workflow for upstream baselines and future Forjyn-owned filters.
+- Added initial model factory scaffolding: tracked manifest, local CLI, factory documentation, and model status table.
+- Factory outputs are configured for `.local/model-factory/<model-id>/` and must not be committed.
+- Verified the factory path locally with `candy`: manifest check, status, export, and validation passed; generated metadata and ONNX artifacts stayed under `.local/model-factory/candy/`.
+- Next step: provide legal Forjyn-owned style images and a legal training dataset path for the first owned-model batch.
