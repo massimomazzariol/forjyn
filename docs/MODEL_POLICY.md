@@ -20,6 +20,22 @@ Batch dynamism alone is not enough for Forjyn. The Forjyn target remains ONNX mo
 
 Input/output shape preservation must hold across dynamic height and width, not only at a single fixed `1080x1080` size.
 
+## Dynamic Shape-Preserving Export
+
+A temporary export smoke test showed that `TransformerNet` can be wrapped with a final dynamic crop to restore the original input height and width after the model's internal stride/upsample path. The exported wrapper uses dynamic H/W input and returns runtime shape-preserving output for tested non-fixed sizes.
+
+The smoke-test model uses random/default weights and exists only to validate architecture, ONNX export, and ONNX Runtime behavior. It is not a usable style model and must not be presented as a trained or quality-validated Forjyn model.
+
+The dynamic crop is allowed only as a final shape correction back to the original input H/W. It is not tiling, not patch stitching, and not an upscale workaround for low-resolution output.
+
+Before any generated model is treated as real or useful, Forjyn still needs:
+
+- trained and validated weights
+- a stable export policy
+- numeric validation across multiple H/W inputs
+- visual validation on legal test images
+- documented training data, style reference, license status, export settings, and known limitations
+
 ## License Requirements
 
 Every model must have a clear license status before it is shared, published, or consumed downstream.

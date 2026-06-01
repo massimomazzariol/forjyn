@@ -15,4 +15,15 @@
   - `weights/rain-princess.onnx`: input `[batch_size, 3, 1080, 1080]`, output `[batch_size, 3, 1080, 1080]`.
   - `weights/udnie.onnx`: input `[batch_size, 3, 1080, 1080]`, output `[batch_size, 3, 1080, 1080]`.
 - Conclusion: inherited upstream ONNX weights are a working CPU fixed-size `1080x1080` baseline, but they do not satisfy the Forjyn target of dynamic H/W ONNX with shape-preserving output.
-- Next step: create or export an ONNX model with input `1 x 3 x height x width` and output `1 x 3 x height x width`.
+- Ran a temporary dynamic shape-preserving export smoke test using `.local/export_dynamic_shape_preserving_smoke.py`.
+- Exported a random/default-weight `TransformerNet` wrapper to `.local/export/forjyn-dynamic-shape-preserving-smoke.onnx` with sidecar `.local/export/forjyn-dynamic-shape-preserving-smoke.onnx.data`.
+- Export used the PyTorch ONNX exporter with effective opset `ai.onnx:18`; `onnx.checker` passed.
+- Exported ONNX declared input `input` as `[batch, 3, height, width]` and output `output` as `[batch, 3, Min(height, 4*(((height - 1)//4)) + 4), Min(width, 4*(((width - 1)//4)) + 4)]`.
+- Runtime validation confirmed shape preservation on CPU:
+  - `1 x 3 x 128 x 160` -> `1 x 3 x 128 x 160`.
+  - `1 x 3 x 256 x 320` -> `1 x 3 x 256 x 320`.
+  - `1 x 3 x 391 x 470` -> `1 x 3 x 391 x 470`.
+  - `1 x 3 x 513 x 777` -> `1 x 3 x 513 x 777`.
+- Interpretation: ONNX Runtime exposes the output shape as a `Min(...)` expression rather than simplifying it to `height, width`, but runtime validation confirms shape-preserving output for the tested dynamic H/W inputs.
+- Conclusion: a temporary wrapper with final dynamic crop can make `TransformerNet` export and run as dynamic H/W shape-preserving ONNX. This validates architecture/export/runtime only; random/default weights do not validate visual quality.
+- Next step: define a stable export policy and produce a real trained/validated model with documented training, licensing, numeric checks, and visual checks.

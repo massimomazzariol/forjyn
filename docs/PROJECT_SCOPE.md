@@ -21,6 +21,8 @@ The inherited upstream ONNX weights are useful as a CPU smoke-test baseline. Ini
 
 Forjyn's target is a shape-preserving ONNX model whose height and width are dynamic. A model that only declares a dynamic batch dimension is not sufficient for the project target.
 
+A final dynamic crop back to the original input height and width is acceptable as a technical shape-preservation step when the model's internal stride/upsample path rounds dimensions upward. This crop must only restore the original frame dimensions; it is not a substitute for full-frame inference and must not become tiling, patch stitching, or low-resolution upscaling.
+
 ## Non-Goals
 
 Forjyn should not treat any of the following as the product solution:
