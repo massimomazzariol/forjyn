@@ -1,5 +1,22 @@
-# .pth
+# Forjyn local context and generated artifacts
+.local/
+**pycache**/
+*.pyc
+.venv/
+venv/
+.env
+data/
+datasets/
+outputs/
+runs/
+checkpoints/
+exports/
+generated_outputs/
+models/
 *.pth
+*.pt
+*.pth.tar
+*.ckpt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
