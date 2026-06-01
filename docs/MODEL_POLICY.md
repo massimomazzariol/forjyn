@@ -36,6 +36,14 @@ Before any generated model is treated as real or useful, Forjyn still needs:
 - visual validation on legal test images
 - documented training data, style reference, license status, export settings, and known limitations
 
+## Real Upstream Baselines
+
+The upstream `candy.pth` release checkpoint can be used as a local baseline for technical validation. It loaded into `TransformerNet`, exported through the temporary dynamic shape-preserving wrapper, and preserved H/W on realistic CPU tensor tests up to Full HD landscape/portrait sizes.
+
+This checkpoint remains an upstream artifact, not a Forjyn-owned model. Its release source, hash, license status, validation scope, and limitations must be documented before any public model distribution decision.
+
+CPU timings from local smoke tests are indicative only. They are not benchmark results.
+
 ## License Requirements
 
 Every model must have a clear license status before it is shared, published, or consumed downstream.

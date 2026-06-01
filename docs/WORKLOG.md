@@ -26,4 +26,15 @@
   - `1 x 3 x 513 x 777` -> `1 x 3 x 513 x 777`.
 - Interpretation: ONNX Runtime exposes the output shape as a `Min(...)` expression rather than simplifying it to `height, width`, but runtime validation confirms shape-preserving output for the tested dynamic H/W inputs.
 - Conclusion: a temporary wrapper with final dynamic crop can make `TransformerNet` export and run as dynamic H/W shape-preserving ONNX. This validates architecture/export/runtime only; random/default weights do not validate visual quality.
-- Next step: define a stable export policy and produce a real trained/validated model with documented training, licensing, numeric checks, and visual checks.
+- Downloaded only `candy.pth` from upstream `yakhyo/fast-neural-style-transfer` release `v1.0` into `.local/upstream-yakhyo-v1.0/candy.pth` for local technical validation.
+- Recorded `candy.pth` SHA256: `D458C378A796C7F2B332050995AD1B2D27DD5D73AC3C015C79E4C45D773AF282`.
+- Confirmed the upstream `candy.pth` checkpoint loads into the local `TransformerNet` with no missing or unexpected keys.
+- Exported the real upstream `candy.pth` through the temporary dynamic shape-preserving wrapper to `.local/export/forjyn-candy-real-dynamic-shape-preserving-smoke.onnx` with sidecar `.onnx.data`.
+- Validated ONNX Runtime CPU shape preservation on realistic tensor sizes:
+  - `1 x 3 x 1090 x 1280` -> `1 x 3 x 1090 x 1280` in about `1.493s`.
+  - `1 x 3 x 1080 x 1920` -> `1 x 3 x 1080 x 1920` in about `1.959s`.
+  - `1 x 3 x 1920 x 1080` -> `1 x 3 x 1920 x 1080` in about `2.079s`.
+  - `1 x 3 x 1091 x 1279` -> `1 x 3 x 1091 x 1279` in about `1.313s`.
+- Ran a synthetic image smoke test at `1280 x 1090`; output preserved `1280 x 1090`.
+- Conclusion: upstream `candy.pth` is a real compatible baseline that can be exported as dynamic H/W shape-preserving ONNX, but it is not Forjyn-owned and should not be treated as the final project model.
+- Next step: define a model factory manifest and batch workflow for upstream baselines and future Forjyn-owned filters.
