@@ -612,6 +612,8 @@ class ReferenceGeneratorWindow:
         self.seed_mode = StringVar(value="Random")
         self.seed_value = StringVar()
         self.status = StringVar(value="Ready")
+        self.preset_description = StringVar(value=REFERENCE_PRESETS["neon-bloom"]["description"])
+        self.selection_status = StringVar(value="No generated reference selected")
         self.count = tk.IntVar(value=REFERENCE_DEFAULTS["count"])
         self.width = tk.IntVar(value=REFERENCE_DEFAULTS["width"])
         self.height = tk.IntVar(value=REFERENCE_DEFAULTS["height"])
@@ -628,10 +630,10 @@ class ReferenceGeneratorWindow:
         self.window.columnconfigure(1, weight=1)
         self.window.rowconfigure(0, weight=1)
 
-        controls = ttk.Frame(self.window, padding=14)
+        controls = ttk.Frame(self.window, padding=16)
         controls.grid(row=0, column=0, sticky="ns")
 
-        preview_box = ttk.Frame(self.window, padding=(0, 14, 14, 14))
+        preview_box = ttk.Frame(self.window, padding=(0, 16, 16, 16))
         preview_box.grid(row=0, column=1, sticky="nsew")
         preview_box.columnconfigure(0, weight=1)
         preview_box.rowconfigure(1, weight=1)
@@ -646,27 +648,31 @@ class ReferenceGeneratorWindow:
             width=28,
         )
         self.preset_menu.grid(row=1, column=1, columnspan=2, sticky="ew", pady=4)
+        self.preset_menu.bind("<<ComboboxSelected>>", self._update_preset_description)
+        ttk.Label(controls, textvariable=self.preset_description, wraplength=300, foreground="#586174").grid(
+            row=2, column=0, columnspan=3, sticky="w", pady=(0, 10)
+        )
 
-        ttk.Label(controls, text="Count").grid(row=2, column=0, sticky="w", pady=4)
+        ttk.Label(controls, text="Count").grid(row=3, column=0, sticky="w", pady=4)
         self.count_spin = ttk.Spinbox(controls, from_=1, to=12, textvariable=self.count, width=8)
-        self.count_spin.grid(row=2, column=1, sticky="w", pady=4)
-        ttk.Label(controls, text="max 12", style="Small.TLabel").grid(row=2, column=2, sticky="w", padx=(6, 0))
+        self.count_spin.grid(row=3, column=1, sticky="w", pady=4)
+        ttk.Label(controls, text="max 12", style="Small.TLabel").grid(row=3, column=2, sticky="w", padx=(6, 0))
 
-        ttk.Label(controls, text="Width").grid(row=3, column=0, sticky="w", pady=4)
+        ttk.Label(controls, text="Width").grid(row=4, column=0, sticky="w", pady=4)
         self.width_spin = ttk.Spinbox(controls, from_=256, to=2048, increment=64, textvariable=self.width, width=8)
-        self.width_spin.grid(row=3, column=1, sticky="w", pady=4)
-        ttk.Label(controls, text="Height").grid(row=4, column=0, sticky="w", pady=4)
+        self.width_spin.grid(row=4, column=1, sticky="w", pady=4)
+        ttk.Label(controls, text="Height").grid(row=5, column=0, sticky="w", pady=4)
         self.height_spin = ttk.Spinbox(controls, from_=256, to=2048, increment=64, textvariable=self.height, width=8)
-        self.height_spin.grid(row=4, column=1, sticky="w", pady=4)
+        self.height_spin.grid(row=5, column=1, sticky="w", pady=4)
 
-        ttk.Label(controls, text="Seed").grid(row=5, column=0, sticky="w", pady=(12, 4))
+        ttk.Label(controls, text="Seed").grid(row=6, column=0, sticky="w", pady=(12, 4))
         self.seed_menu = ttk.Combobox(controls, textvariable=self.seed_mode, values=["Random", "Numeric"], state="readonly", width=10)
-        self.seed_menu.grid(row=5, column=1, sticky="w", pady=(12, 4))
+        self.seed_menu.grid(row=6, column=1, sticky="w", pady=(12, 4))
         self.seed_entry = ttk.Entry(controls, textvariable=self.seed_value, width=12)
-        self.seed_entry.grid(row=5, column=2, sticky="w", padx=(6, 0), pady=(12, 4))
+        self.seed_entry.grid(row=6, column=2, sticky="w", padx=(6, 0), pady=(12, 4))
 
         self.slider_widgets = []
-        row = 6
+        row = 7
         for label, variable in [
             ("Intensity", self.intensity),
             ("Glow", self.glow),
@@ -687,9 +693,10 @@ class ReferenceGeneratorWindow:
         self.close_button.grid(row=button_row + 3, column=0, columnspan=3, sticky="ew", pady=(12, 0))
         ttk.Label(controls, textvariable=self.status, wraplength=290).grid(row=button_row + 4, column=0, columnspan=3, sticky="w", pady=(12, 0))
 
-        ttk.Label(preview_box, text="Variations").grid(row=0, column=0, sticky="w", pady=(0, 8))
+        ttk.Label(preview_box, text="Generated variations", font=("Segoe UI", 11, "bold")).grid(row=0, column=0, sticky="w", pady=(0, 8))
         self.preview_frame = ttk.Frame(preview_box)
         self.preview_frame.grid(row=1, column=0, sticky="nsew")
+        ttk.Label(preview_box, textvariable=self.selection_status, foreground="#2F5E73").grid(row=2, column=0, sticky="w", pady=(8, 0))
         for index in range(4):
             self.preview_frame.columnconfigure(index, weight=1)
         self.empty_preview = ttk.Label(
@@ -698,6 +705,11 @@ class ReferenceGeneratorWindow:
             foreground="#586174",
         )
         self.empty_preview.grid(row=0, column=0, columnspan=4, sticky="n", pady=60)
+
+    def _update_preset_description(self, _event=None):
+        preset = self.preset_options.get(self.preset.get())
+        if preset:
+            self.preset_description.set(REFERENCE_PRESETS[preset]["description"])
 
     def _add_slider(self, parent, row, label, variable):
         value_label = StringVar(value=str(int(variable.get())))
@@ -764,6 +776,7 @@ class ReferenceGeneratorWindow:
             return
         self._set_busy(True)
         self.status.set("Generating variations...")
+        self.selection_status.set("Generating...")
         self.generated_paths = []
         self.selected_path = None
         self._render_previews([])
@@ -788,12 +801,20 @@ class ReferenceGeneratorWindow:
                     self.generated_paths = payload["images"]
                     self.selected_path = self.generated_paths[0] if self.generated_paths else None
                     self._render_previews(self.generated_paths)
+                    retry_total = sum(int(item.get("retry_count", 0)) for item in payload.get("quality", []))
+                    quality_failures = sum(1 for item in payload.get("quality", []) if not item.get("final_quality_pass"))
                     self.status.set(f"Generated {len(self.generated_paths)} variations. Contact sheet: {rel(payload['contact_sheet'])}")
+                    if self.selected_path:
+                        self.selection_status.set(f"Selected: {Path(self.selected_path).name}")
                     self.log_callback(f"Generated reference variations: {rel(payload['temp_dir'])}\n")
+                    if retry_total or quality_failures:
+                        self.log_callback(f"Reference quality guard: retries {retry_total}, kept after failed checks {quality_failures}.\n")
                     self._set_busy(False)
                 elif kind == "error":
                     self.status.set(f"Generation failed: {payload}")
+                    self.selection_status.set("Generation failed")
                     self.log_callback(f"Reference generation failed: {payload}\n")
+                    messagebox.showerror("Reference generation failed", str(payload))
                     self._set_busy(False)
         except queue.Empty:
             pass
@@ -806,6 +827,7 @@ class ReferenceGeneratorWindow:
         self.thumbnail_images = []
         self.thumbnail_widgets = {}
         if not paths:
+            self.selection_status.set("No generated reference selected")
             self.empty_preview = ttk.Label(
                 self.preview_frame,
                 text="Generate variations to preview procedural reference images.",
@@ -834,15 +856,23 @@ class ReferenceGeneratorWindow:
 
     def select_image(self, path):
         self.selected_path = path
+        self.selection_status.set(f"Selected: {Path(path).name}")
         self._highlight_selection()
         self._update_save_state()
 
     def _highlight_selection(self):
         for path, widget in self.thumbnail_widgets.items():
             if path == self.selected_path:
-                widget.configure(relief="solid", bd=4, highlightthickness=2, highlightbackground="#00A6D6")
+                widget.configure(
+                    relief="solid",
+                    bd=4,
+                    background="#E7F7FF",
+                    activebackground="#D5F1FF",
+                    highlightthickness=2,
+                    highlightbackground="#00A6D6",
+                )
             else:
-                widget.configure(relief="flat", bd=1, highlightthickness=0)
+                widget.configure(relief="flat", bd=1, background="#F2F4F8", activebackground="#EDF2F7", highlightthickness=0)
 
     def save_selected(self):
         if not self.selected_path:
@@ -854,7 +884,8 @@ class ReferenceGeneratorWindow:
             messagebox.showerror("Save failed", str(exc))
             return
         self.add_paths_callback([saved["image"]])
-        self.status.set(f"Saved selected reference: {Path(saved['image']).name}")
+        self.status.set(f"Saved to Step 2 references: {Path(saved['image']).name}")
+        self.selection_status.set(f"Saved: {Path(saved['image']).name}")
         self.log_callback(f"Saved generated reference: {rel(saved['image'])}\n")
 
     def save_all(self):
@@ -868,7 +899,8 @@ class ReferenceGeneratorWindow:
             messagebox.showerror("Save failed", str(exc))
             return
         self.add_paths_callback(saved_paths)
-        self.status.set(f"Saved {len(saved_paths)} generated references.")
+        self.status.set(f"Saved {len(saved_paths)} references to Step 2 references.")
+        self.selection_status.set(f"Saved all: {len(saved_paths)} references")
         self.log_callback(f"Saved {len(saved_paths)} generated references to {rel(Path(saved_paths[0]).parent)}\n")
 
     def close(self):

@@ -47,7 +47,7 @@ The easiest way on Windows is the minimal GUI:
 
 The GUI shows basic CPU/GPU, PyTorch, and ONNX Runtime status before you start.
 
-Step 2 can also generate local procedural reference-image variations and save selected results into the Workbench reference list.
+Step 2 can also generate local project-owned procedural reference-image variations and save selected results into the Workbench reference list.
 
 For details, read [`docs/WORKBENCH.md`](docs/WORKBENCH.md).
 

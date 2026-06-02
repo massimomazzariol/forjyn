@@ -39,6 +39,22 @@ ForJyn_Workbench/generated_references/saved/
 
 The generated files and metadata are local workbench artifacts and should not be committed.
 
+The generator includes anti-washout safeguards. Each generated image is scored for brightness, contrast, saturation, white clipping, dark/bright balance, and edge detail. If an output is too white, too flat, or too low-information, ForJyn retries with a derived seed and records the final metrics in metadata.
+
+Reference quality matters. A useful style/reference image should contain dark zones, bright zones, structure, texture, color variation, and readable edges. Pretty but flat references usually train weaker models.
+
+Recommended first presets:
+
+- Cyber Edge
+- Neon Bloom
+- Liquid Neon
+
+Basic generator workflow:
+
+```text
+generate variations -> review contact sheet -> save chosen references -> use in Step 2 -> train
+```
+
 The GUI also shows a compact status area with:
 
 - Workbench readiness.
