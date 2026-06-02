@@ -49,6 +49,8 @@ The GUI shows basic CPU/GPU, PyTorch, and ONNX Runtime status before you start.
 
 Step 2 can also generate local project-owned procedural reference-image variations and save selected results into the Workbench reference list.
 
+The GUI can also create a local review sheet from completed outputs so candidates can be screened before slower final training.
+
 For details, read [`docs/WORKBENCH.md`](docs/WORKBENCH.md).
 
 ## Setup

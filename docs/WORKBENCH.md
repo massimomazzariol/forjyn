@@ -13,6 +13,7 @@ ForJyn Workbench is the simple Windows-first way to create a local per-style ONN
 7. Click `Start`.
 8. Wait.
 9. Click `Open output folder`.
+10. Click `Create review sheet` to compare completed outputs visually.
 
 Step 2 also includes `Generate reference images`. This opens the local `ForJyn Reference Generator`, which can create procedural reference-image variations without downloading assets or using external AI generation.
 
@@ -52,7 +53,7 @@ Recommended first presets:
 Basic generator workflow:
 
 ```text
-generate variations -> review contact sheet -> save chosen references -> use in Step 2 -> train
+generate many references -> save a few promising ones -> use in Step 2 -> train selected references -> review outputs -> final-train only winners
 ```
 
 The GUI also shows a compact status area with:
@@ -125,14 +126,16 @@ content image + style/reference image
 
 ## Quality Modes
 
-- Quick test - 200 steps
-  Fast smoke test, not final quality.
-- Normal - 800 steps
-  First real pilot.
-- Better quality - 2000 steps
-  Slower, better candidate.
+- Draft screening - 300 steps
+  Fast screening. Use this to test multiple references before spending time.
+- Normal candidate - 800 steps
+  Good first candidate. Use this for promising references.
+- Final quality - 2000 steps
+  Slow. Use only for selected winners.
 
 ForJyn output quality depends on the style image, content photo, training steps, and local environment. Review generated results before sharing them.
+
+The bottleneck is training, so do not train too many references blindly. Use Draft or Normal to compare several references, then reserve Final quality for the best few.
 
 ## Supported Image Formats
 
@@ -157,6 +160,18 @@ The GUI shows the current stage:
 
 Raw progress percentages from lower-level tools are filtered out of the GUI log so the log stays readable.
 
+## Review Sheet
+
+After one or more jobs complete, click `Create review sheet` in the GUI. ForJyn composes a local comparison sheet from already-generated outputs; it does not train, export ONNX, or process new content.
+
+The latest GUI review sheet is saved here:
+
+```text
+ForJyn_Workbench/reviews/latest-review-sheet.jpg
+```
+
+Use it for human visual review before deciding which references deserve slower final-quality training.
+
 ## Where Files Are Stored
 
 User-facing outputs:
@@ -177,6 +192,14 @@ The GUI can choose input files from any local path. Optional convenience folders
 ForJyn_Workbench/inputs/
 ForJyn_Workbench/references/
 ```
+
+The backend command `cleanup-temp` removes only temporary generated-reference sessions:
+
+```powershell
+.\.venv\Scripts\python tools\forjyn_workbench.py cleanup-temp
+```
+
+It keeps starter packs, saved references, contact sheets, outputs, models, reports, reviews, `.venv`, `.local`, and `weights`.
 
 ## Backend Command
 

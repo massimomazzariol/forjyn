@@ -14,7 +14,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageDraw, features
+from PIL import Image, ImageDraw, ImageOps, features
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,6 +22,7 @@ WORKBENCH = ROOT / "ForJyn_Workbench"
 CONTENT_DIR = WORKBENCH / "inputs"
 STYLE_DIR = WORKBENCH / "references"
 OUTPUT_DIR = WORKBENCH / "outputs"
+REVIEWS_DIR = WORKBENCH / "reviews"
 TECHNICAL_DIR = WORKBENCH / "technical"
 MODELS_DIR = TECHNICAL_DIR / "models"
 REPORTS_DIR = TECHNICAL_DIR / "reports"
@@ -103,7 +104,7 @@ def read_json(path):
 
 
 def ensure_dirs():
-    for path in [CONTENT_DIR, STYLE_DIR, OUTPUT_DIR, TECHNICAL_DIR, MODELS_DIR, REPORTS_DIR, CACHE_DIR, LOGS_DIR, PREVIEWS_DIR]:
+    for path in [CONTENT_DIR, STYLE_DIR, OUTPUT_DIR, REVIEWS_DIR, TECHNICAL_DIR, MODELS_DIR, REPORTS_DIR, CACHE_DIR, LOGS_DIR, PREVIEWS_DIR]:
         path.mkdir(parents=True, exist_ok=True)
 
 
@@ -765,6 +766,120 @@ def write_job_outputs(trained, content, job_dir, style_slug, style_name=None, or
     return job_summary
 
 
+def completed_job_dirs():
+    if not OUTPUT_DIR.exists():
+        return []
+    jobs = []
+    for child in OUTPUT_DIR.iterdir():
+        if not child.is_dir():
+            continue
+        if (child / "job-summary.json").exists() and (child / "apply-result.json").exists():
+            jobs.append(child)
+    return sorted(jobs, key=lambda path: path.stat().st_mtime)
+
+
+def create_review_sheet(args):
+    ensure_dirs()
+    jobs = completed_job_dirs()
+    if not jobs:
+        raise SystemExit("No outputs found yet. Generate at least one model first.")
+
+    items = []
+    rows = []
+    first_content = None
+    for job_dir in jobs:
+        job_summary = read_json(job_dir / "job-summary.json")
+        apply_result = read_json(job_dir / "apply-result.json")
+        output_path = repo_path(apply_result["output"])
+        content_path = repo_path(apply_result["content"])
+        if first_content is None:
+            first_content = content_path
+            items.append(("content-original", content_path))
+        if output_path.exists():
+            label = job_summary.get("job_id") or job_dir.name
+            items.append((label, output_path))
+        rows.append({
+            "job_id": job_summary.get("job_id") or job_dir.name,
+            "job_folder": rel(job_dir),
+            "style": job_summary.get("style"),
+            "onnx": job_summary.get("onnx"),
+            "output": apply_result.get("output"),
+            "provider": apply_result.get("provider", {}).get("provider_used"),
+            "input_size": apply_result.get("input_size"),
+            "output_size": apply_result.get("output_size"),
+            "preserves_size": apply_result.get("preserves_size"),
+        })
+
+    if len(items) <= 1:
+        raise SystemExit("No output images found yet. Generate at least one model first.")
+
+    tile_w, tile_h = 420, 310
+    label_h = 44
+    columns = 2
+    rows_count = math.ceil(len(items) / columns)
+    sheet = Image.new("RGB", (columns * tile_w, rows_count * (tile_h + label_h)), (12, 14, 18))
+    for index, (label, path) in enumerate(items):
+        image = Image.open(path).convert("RGB")
+        image = ImageOps.contain(image, (tile_w, tile_h), Image.Resampling.LANCZOS)
+        tile = Image.new("RGB", (tile_w, tile_h + label_h), (18, 21, 28))
+        tile.paste(image, ((tile_w - image.width) // 2, (tile_h - image.height) // 2))
+        draw = ImageDraw.Draw(tile)
+        draw.rectangle([0, tile_h, tile_w, tile_h + label_h], fill=(8, 10, 16))
+        draw.text((12, tile_h + 14), label[:48], fill=(235, 240, 255))
+        x = (index % columns) * tile_w
+        y = (index // columns) * (tile_h + label_h)
+        sheet.paste(tile, (x, y))
+
+    output = REVIEWS_DIR / "latest-review-sheet.jpg"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    sheet.save(output, quality=95)
+    report = REVIEWS_DIR / "latest-review-sheet.json"
+    write_json(report, {
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "review_sheet": rel(output),
+        "content": rel(first_content) if first_content else None,
+        "jobs": rows,
+        "note": "human visual review required",
+    })
+    payload = {"review_sheet": rel(output), "report": rel(report), "job_count": len(rows)}
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return output
+
+
+def cleanup_temp(args):
+    ensure_dirs()
+    target = WORKBENCH / "generated_references" / "temp"
+    resolved_target = target.resolve()
+    resolved_workbench = WORKBENCH.resolve()
+    if resolved_target == resolved_workbench or resolved_workbench not in resolved_target.parents:
+        raise SystemExit(f"Refusing cleanup outside {WORKBENCH}: {target}")
+    file_count = 0
+    byte_count = 0
+    if target.exists():
+        for path in target.rglob("*"):
+            if path.is_file():
+                file_count += 1
+                byte_count += path.stat().st_size
+        shutil.rmtree(target)
+    payload = {
+        "deleted": target.exists() is False,
+        "target": rel(target),
+        "files_removed": file_count,
+        "bytes_removed": byte_count,
+        "kept": [
+            "ForJyn_Workbench/generated_references/starter_pack/",
+            "ForJyn_Workbench/generated_references/saved/",
+            "ForJyn_Workbench/generated_references/contact_sheets/",
+            "ForJyn_Workbench/outputs/",
+            "ForJyn_Workbench/technical/models/",
+            "ForJyn_Workbench/technical/reports/",
+            "ForJyn_Workbench/reviews/",
+        ],
+    }
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return payload
+
+
 def run_job(args):
     ensure_dirs()
     content = repo_path(args.content)
@@ -1193,6 +1308,12 @@ def build_parser():
     benchmark.add_argument("--content", required=True)
     benchmark.add_argument("--runs", type=int, default=3)
     benchmark.set_defaults(func=lambda args: benchmark_onnx(args))
+
+    review = subparsers.add_parser("create-review-sheet", help="Create a visual sheet from existing completed outputs")
+    review.set_defaults(func=lambda args: create_review_sheet(args))
+
+    cleanup = subparsers.add_parser("cleanup-temp", help="Delete only safe temporary generated-reference files")
+    cleanup.set_defaults(func=lambda args: cleanup_temp(args))
 
     run_all_command = subparsers.add_parser("run-all", help="Run the full workflow for all style images")
     add_training_args(run_all_command)

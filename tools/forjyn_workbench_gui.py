@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 import queue
 import re
@@ -32,6 +33,7 @@ WORKBENCH = ROOT / "ForJyn_Workbench"
 INPUTS_DIR = WORKBENCH / "inputs"
 REFERENCES_DIR = WORKBENCH / "references"
 OUTPUTS_DIR = WORKBENCH / "outputs"
+REVIEWS_DIR = WORKBENCH / "reviews"
 TECHNICAL_DIR = WORKBENCH / "technical"
 BACKEND = ROOT / "tools" / "forjyn_workbench.py"
 
@@ -44,9 +46,15 @@ IMAGE_FILETYPES = [
 ]
 
 QUALITY_MODES = {
-    "Quick test - 200 steps": 200,
-    "Normal - 800 steps": 800,
-    "Better quality - 2000 steps": 2000,
+    "Draft screening - 300 steps": 300,
+    "Normal candidate - 800 steps": 800,
+    "Final quality - 2000 steps": 2000,
+}
+
+QUALITY_DESCRIPTIONS = {
+    "Draft screening - 300 steps": "Fast screening. Use this to test multiple references before spending time.",
+    "Normal candidate - 800 steps": "Good first candidate. Use this for promising references.",
+    "Final quality - 2000 steps": "Slow. Use only for selected winners.",
 }
 
 IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"]
@@ -54,7 +62,7 @@ PERCENT_LINE_RE = re.compile(r"^\s*\d+(?:\.\d+)?%\s*$")
 
 
 def ensure_workbench_dirs():
-    for path in [WORKBENCH, INPUTS_DIR, REFERENCES_DIR, OUTPUTS_DIR, TECHNICAL_DIR]:
+    for path in [WORKBENCH, INPUTS_DIR, REFERENCES_DIR, OUTPUTS_DIR, REVIEWS_DIR, TECHNICAL_DIR]:
         path.mkdir(parents=True, exist_ok=True)
 
 
@@ -139,7 +147,8 @@ class ForJynWorkbenchApp:
         self.content_path = StringVar()
         self.content_label = StringVar(value="No content photo selected")
         self.styles_summary = StringVar(value="No style/reference images selected")
-        self.quality = StringVar(value="Normal - 800 steps")
+        self.quality = StringVar(value="Normal candidate - 800 steps")
+        self.quality_description = StringVar(value=QUALITY_DESCRIPTIONS[self.quality.get()])
         self.progress_status = StringVar(value="Waiting")
         self.current_job = StringVar(value="Current job: idle")
         self.current_stage = StringVar(value="Current stage: Waiting")
@@ -215,7 +224,7 @@ class ForJynWorkbenchApp:
         style_box.grid(row=4, column=0, sticky="nsew", pady=6)
         style_box.columnconfigure(0, weight=1)
         style_box.rowconfigure(1, weight=1)
-        ttk.Label(style_box, text="ForJyn will train one model for each selected style image.").grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 6))
+        ttk.Label(style_box, text="Reference images can be loaded from files or generated locally inside ForJyn.").grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 6))
         self.style_list = ttk.Treeview(style_box, columns=("file", "folder"), show="headings", height=5)
         self.style_list.heading("file", text="File")
         self.style_list.heading("folder", text="Folder")
@@ -243,30 +252,40 @@ class ForJynWorkbenchApp:
             textvariable=self.quality,
             values=list(QUALITY_MODES.keys()),
             state="readonly",
-            width=30,
+            width=34,
         )
         self.quality_menu.grid(row=0, column=1, sticky="w")
+        self.quality_menu.bind("<<ComboboxSelected>>", self._update_quality_description)
         ttk.Label(
             quality_box,
-            text="Quick is only for checking the pipeline. Better quality can take much longer.",
+            textvariable=self.quality_description,
         ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        ttk.Label(
+            quality_box,
+            text="Do not use Final quality for many references. First screen them with Draft or Normal.",
+            foreground="#7A4A00",
+        ).grid(row=2, column=0, columnspan=2, sticky="w", pady=(4, 0))
 
         generate_box = ttk.LabelFrame(frame, text="Step 4 - Generate", padding=10)
         generate_box.grid(row=6, column=0, sticky="ew", pady=6)
-        generate_box.columnconfigure(3, weight=1)
+        generate_box.columnconfigure(5, weight=1)
         self.start_button = ttk.Button(generate_box, text="Start", command=self.start_jobs, style="Accent.TButton")
         self.start_button.grid(row=0, column=0, padx=(0, 8))
         self.open_output_button = ttk.Button(generate_box, text="Open output folder", command=self.open_output, state=DISABLED)
         self.open_output_button.grid(row=0, column=1, padx=(0, 8))
+        self.review_sheet_button = ttk.Button(generate_box, text="Create review sheet", command=self.create_review_sheet)
+        self.review_sheet_button.grid(row=0, column=2, padx=(0, 8))
+        self.clean_temp_button = ttk.Button(generate_box, text="Clean temporary refs", command=self.clean_temp_references)
+        self.clean_temp_button.grid(row=0, column=3, padx=(0, 8))
         self.open_workbench_button = ttk.Button(generate_box, text="Open workbench folder", command=lambda: open_folder(WORKBENCH))
-        self.open_workbench_button.grid(row=0, column=2, padx=(0, 12))
-        ttk.Label(generate_box, textvariable=self.progress_status).grid(row=0, column=3, sticky="e")
+        self.open_workbench_button.grid(row=0, column=4, padx=(0, 12))
+        ttk.Label(generate_box, textvariable=self.progress_status).grid(row=0, column=5, sticky="e")
         self.progress = ttk.Progressbar(generate_box, mode="indeterminate")
-        self.progress.grid(row=1, column=0, columnspan=4, sticky="ew", pady=(10, 0))
-        ttk.Label(generate_box, textvariable=self.current_job).grid(row=2, column=0, columnspan=4, sticky="w", pady=(8, 0))
-        ttk.Label(generate_box, textvariable=self.current_stage).grid(row=3, column=0, columnspan=2, sticky="w")
-        ttk.Label(generate_box, textvariable=self.style_progress).grid(row=3, column=2, columnspan=2, sticky="e")
-        ttk.Label(generate_box, textvariable=self.output_status).grid(row=4, column=0, columnspan=4, sticky="w")
+        self.progress.grid(row=1, column=0, columnspan=6, sticky="ew", pady=(10, 0))
+        ttk.Label(generate_box, textvariable=self.current_job).grid(row=2, column=0, columnspan=6, sticky="w", pady=(8, 0))
+        ttk.Label(generate_box, textvariable=self.current_stage).grid(row=3, column=0, columnspan=3, sticky="w")
+        ttk.Label(generate_box, textvariable=self.style_progress).grid(row=3, column=3, columnspan=3, sticky="e")
+        ttk.Label(generate_box, textvariable=self.output_status).grid(row=4, column=0, columnspan=6, sticky="w")
 
         log_box = ttk.LabelFrame(frame, text="Log", padding=8)
         log_box.grid(row=7, column=0, sticky="nsew", pady=(8, 0))
@@ -300,6 +319,9 @@ class ForJynWorkbenchApp:
             self._append_log(f"Selected content photo: {Path(path).name}\n")
             self._update_start_state()
 
+    def _update_quality_description(self, _event=None):
+        self.quality_description.set(QUALITY_DESCRIPTIONS.get(self.quality.get(), ""))
+
     def _refresh_style_list(self):
         self.style_list.delete(*self.style_list.get_children())
         for path in self.style_paths:
@@ -326,7 +348,7 @@ class ForJynWorkbenchApp:
             added += 1
         self._refresh_style_list()
         if added:
-            self._append_log(f"Added {added} style/reference image{'s' if added != 1 else ''}.\n")
+            self._append_log(f"Added {added} style/reference image{'s' if added != 1 else ''}. These will be used like normal references.\n")
         self._update_start_state()
 
     def choose_styles(self):
@@ -350,6 +372,8 @@ class ForJynWorkbenchApp:
         self.choose_styles_button.configure(state=state)
         self.generate_refs_button.configure(state=state)
         self.quality_menu.configure(state="readonly" if state == NORMAL else DISABLED)
+        self.review_sheet_button.configure(state=state)
+        self.clean_temp_button.configure(state=state)
         self.open_workbench_button.configure(state=state)
 
     def _append_log(self, text):
@@ -450,7 +474,8 @@ class ForJynWorkbenchApp:
             "This will train 1 model per style image. Training can take time. Continue?\n\n"
             f"Content photo: {content}\n"
             f"Style images: {len(self.style_paths)}\n"
-            f"Quality steps: {steps}\n"
+            f"Quality: {self.quality.get()} ({steps} steps)\n"
+            f"{QUALITY_DESCRIPTIONS.get(self.quality.get(), '')}\n"
             f"Output root: {rel(OUTPUTS_DIR)}"
         )
         return messagebox.askyesno("Start ForJyn job", message)
@@ -587,6 +612,67 @@ class ForJynWorkbenchApp:
         target = self.last_output_dir or OUTPUTS_DIR
         if target:
             open_folder(target)
+
+    def _run_backend_helper(self, args):
+        env = os.environ.copy()
+        env["PYTHONIOENCODING"] = "utf-8"
+        env["PYTHONUTF8"] = "1"
+        return subprocess.run(
+            [sys.executable, str(BACKEND), *args],
+            cwd=str(ROOT),
+            env=env,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+
+    def create_review_sheet(self):
+        if self.running:
+            return
+        result = self._run_backend_helper(["create-review-sheet"])
+        if result.returncode != 0:
+            message = (result.stderr or result.stdout or "No outputs found yet. Generate at least one model first.").strip()
+            if "No outputs found" in message:
+                messagebox.showinfo("No outputs found", "No outputs found yet. Generate at least one model first.")
+            else:
+                messagebox.showerror("Review sheet failed", message)
+            self._append_log(f"Review sheet not created: {message}\n")
+            return
+        sheet_path = REVIEWS_DIR / "latest-review-sheet.jpg"
+        try:
+            payload = json.loads(result.stdout)
+            sheet_path = ROOT / payload.get("review_sheet", rel(sheet_path))
+        except Exception:
+            pass
+        self._append_log(f"Review sheet created: {rel(sheet_path)}\n")
+        self.output_status.set(f"Review sheet: {rel(sheet_path)}")
+        if sheet_path.exists():
+            open_folder(sheet_path)
+
+    def clean_temp_references(self):
+        if self.running:
+            return
+        if not messagebox.askyesno(
+            "Clean temporary references",
+            "Delete only temporary generated-reference files?\n\nThis keeps starter pack, saved references, contact sheets, outputs, models, and reports.",
+        ):
+            return
+        result = self._run_backend_helper(["cleanup-temp"])
+        if result.returncode != 0:
+            message = (result.stderr or result.stdout or "Cleanup failed.").strip()
+            messagebox.showerror("Cleanup failed", message)
+            self._append_log(f"Temporary reference cleanup failed: {message}\n")
+            return
+        try:
+            payload = json.loads(result.stdout)
+            removed = payload.get("files_removed", 0)
+            bytes_removed = payload.get("bytes_removed", 0)
+            self._append_log(f"Temporary generated references cleaned: {removed} files, {bytes_removed} bytes.\n")
+            self.output_status.set("Temporary generated references cleaned")
+        except Exception:
+            self._append_log("Temporary generated references cleaned.\n")
 
 
 class ReferenceGeneratorWindow:
