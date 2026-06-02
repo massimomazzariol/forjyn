@@ -36,6 +36,8 @@ VALIDATION_SHAPES = [
     (1, 3, 1920, 1080),
     (1, 3, 1091, 1279),
 ]
+ORT_PROVIDER_CHOICES = ["auto", "cpu", "directml"]
+DIRECTML_PROVIDER_NAMES = ["DmlExecutionProvider", "DirectMLExecutionProvider"]
 
 GUIDES = {
     CONTENT_DIR / "PUT_OPTIONAL_CONTENT_PHOTOS_HERE.txt": "Optional: put photos you want to transform in this folder.\nThe GUI can also choose photos from any local path.\nSupported formats: jpg, jpeg, png, webp.\n",
@@ -542,36 +544,41 @@ def export_one(args):
 
 def validate_one(args):
     import onnx
-    import onnxruntime as ort
 
     path = model_dir(args.model_dir)
     onnx_path = primary_onnx_path(path)
     onnx_model = onnx.load(onnx_path)
     onnx.checker.check_model(onnx_model)
-    session = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
-    input_name = session.get_inputs()[0].name
-    output_name = session.get_outputs()[0].name
-    rng = np.random.default_rng(args.seed)
-    results = []
-    for shape in VALIDATION_SHAPES:
-        tensor = rng.standard_normal(shape, dtype=np.float32)
-        started = time.perf_counter()
-        output = session.run(None, {input_name: tensor})[0]
-        seconds = time.perf_counter() - started
-        result = {
-            "input_shape": list(tensor.shape),
-            "output_shape": list(output.shape),
-            "seconds": round(seconds, 3),
-            "preserves_hw": output.shape[2:] == tensor.shape[2:],
-        }
-        results.append(result)
-        print(json.dumps(result, sort_keys=True))
+    provider_mode = getattr(args, "ort_provider", "auto")
+
+    def run_validation(session):
+        input_name = session.get_inputs()[0].name
+        output_name = session.get_outputs()[0].name
+        rng = np.random.default_rng(args.seed)
+        results = []
+        for shape in VALIDATION_SHAPES:
+            tensor = rng.standard_normal(shape, dtype=np.float32)
+            started = time.perf_counter()
+            output = session.run(None, {input_name: tensor})[0]
+            seconds = time.perf_counter() - started
+            result = {
+                "input_shape": list(tensor.shape),
+                "output_shape": list(output.shape),
+                "seconds": round(seconds, 3),
+                "preserves_hw": output.shape[2:] == tensor.shape[2:],
+            }
+            results.append(result)
+            print(json.dumps(result, sort_keys=True))
+        return input_name, output_name, results
+
+    (input_name, output_name, results), provider_info = run_session_with_auto_fallback(onnx_path, provider_mode, run_validation)
     payload = {
         "model_id": path.name,
         "onnx": rel(onnx_path),
         "input_name": input_name,
         "output_name": output_name,
         "opsets": [f"{op.domain or 'ai.onnx'}:{op.version}" for op in onnx_model.opset_import],
+        "provider": provider_info,
         "results": results,
         "all_preserve_hw": all(item["preserves_hw"] for item in results),
     }
@@ -591,16 +598,18 @@ def tensor_to_pil(tensor):
     return Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8), "RGB")
 
 
-def apply_image(model_path, content_path, output_dir=None, style_slug=None):
-    import onnxruntime as ort
-
+def apply_image(model_path, content_path, output_dir=None, style_slug=None, ort_provider="auto"):
     onnx_path = primary_onnx_path(model_path)
-    session = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
-    input_name = session.get_inputs()[0].name
     ensure_supported_image(content_path, "content")
     original = Image.open(content_path).convert("RGB")
-    started = time.perf_counter()
-    output_tensor = session.run(None, {input_name: pil_to_tensor(original)})[0]
+
+    def run_apply(session):
+        input_name = session.get_inputs()[0].name
+        started = time.perf_counter()
+        output_tensor = session.run(None, {input_name: pil_to_tensor(original)})[0]
+        return output_tensor, started
+
+    (output_tensor, started), provider_info = run_session_with_auto_fallback(onnx_path, ort_provider, run_apply)
     output = tensor_to_pil(output_tensor)
     if output.size != original.size:
         raise RuntimeError(f"Output size mismatch: input={original.size}, output={output.size}")
@@ -616,6 +625,7 @@ def apply_image(model_path, content_path, output_dir=None, style_slug=None):
         "output_size": list(output.size),
         "preserves_size": output.size == original.size,
         "seconds": round(time.perf_counter() - started, 3),
+        "provider": provider_info,
         "sha256": sha256(out_path),
     }
 
@@ -625,7 +635,7 @@ def apply_one(args):
     content = repo_path(args.content)
     if not content.exists():
         raise SystemExit(f"Content image missing: {content}")
-    result = apply_image(path, content)
+    result = apply_image(path, content, ort_provider=getattr(args, "ort_provider", "auto"))
     print(json.dumps(result, indent=2, sort_keys=True))
     return [result]
 
@@ -637,7 +647,7 @@ def apply_batch(args):
         raise SystemExit(f"No content images found in {CONTENT_DIR}")
     results = []
     for item in content:
-        result = apply_image(path, item)
+        result = apply_image(path, item, ort_provider=getattr(args, "ort_provider", "auto"))
         results.append(result)
         print(json.dumps(result, sort_keys=True))
     write_json(path / "apply-results.json", {"model_id": path.name, "results": results})
@@ -678,8 +688,8 @@ def contact_sheet(model_path, results):
 def run_one(args):
     trained = train_one(args)
     export_one(argparse.Namespace(model_dir=str(trained)))
-    validate_one(argparse.Namespace(model_dir=str(trained), seed=args.seed))
-    results = apply_batch(argparse.Namespace(model_dir=str(trained)))
+    validate_one(argparse.Namespace(model_dir=str(trained), seed=args.seed, ort_provider=args.ort_provider))
+    results = apply_batch(argparse.Namespace(model_dir=str(trained), ort_provider=args.ort_provider))
     sheet = contact_sheet(trained, results)
     print(json.dumps({"model_dir": rel(trained), "contact_sheet": rel(sheet) if sheet else None}, indent=2, sort_keys=True))
     return trained
@@ -718,10 +728,10 @@ The styled image should preserve the original content width and height.
     (job_dir / "README_OUTPUT.txt").write_text(text, encoding="utf-8")
 
 
-def write_job_outputs(trained, content, job_dir, style_slug, style_name=None):
+def write_job_outputs(trained, content, job_dir, style_slug, style_name=None, ort_provider="auto"):
     progress("STAGE", "applying")
     progress("MESSAGE", "Applying ONNX to content image")
-    apply_result = apply_image(trained, content, output_dir=job_dir, style_slug=style_slug)
+    apply_result = apply_image(trained, content, output_dir=job_dir, style_slug=style_slug, ort_provider=ort_provider)
     write_json(job_dir / "apply-result.json", apply_result)
 
     primary = primary_onnx_path(trained)
@@ -807,11 +817,11 @@ def run_job(args):
 
     progress("STAGE", "validating")
     progress("MESSAGE", "Validating ONNX on variable image sizes")
-    print("Phase: validating ONNX Runtime CPU output shapes", flush=True)
-    validate_one(argparse.Namespace(model_dir=str(trained), seed=args.seed))
+    print("Phase: validating ONNX Runtime output shapes", flush=True)
+    validate_one(argparse.Namespace(model_dir=str(trained), seed=args.seed, ort_provider=args.ort_provider))
 
     print("Phase: applying ONNX to content photo", flush=True)
-    job_summary = write_job_outputs(trained, content, job_dir, style_slug, style.name)
+    job_summary = write_job_outputs(trained, content, job_dir, style_slug, style.name, args.ort_provider)
     job_summary["style"] = rel(style)
     write_json(job_dir / "job-summary.json", job_summary)
 
@@ -847,9 +857,9 @@ def recover_job(args):
 
     progress("STAGE", "validating")
     progress("MESSAGE", "Validating ONNX on variable image sizes")
-    validate_one(argparse.Namespace(model_dir=str(trained), seed=args.seed))
+    validate_one(argparse.Namespace(model_dir=str(trained), seed=args.seed, ort_provider=args.ort_provider))
 
-    job_summary = write_job_outputs(trained, content, job_dir, style_slug, style_slug)
+    job_summary = write_job_outputs(trained, content, job_dir, style_slug, style_slug, args.ort_provider)
     write_json(job_dir / "job-summary.json", job_summary)
 
     progress("STAGE", "done")
@@ -889,6 +899,197 @@ def check_acceleration(_args):
     print("Note: Training currently uses PyTorch CPU/CUDA only. DirectML may be evaluated later only for ONNX inference acceleration.")
 
 
+def benchmark_provider(onnx_path, tensor, provider_mode, runs):
+    result = {
+        "provider_mode": provider_mode,
+        "success": False,
+        "session_creation_seconds": None,
+        "inference_seconds": [],
+        "provider_used": None,
+        "output_shape": None,
+        "error": None,
+    }
+    try:
+        session, info = create_ort_session(onnx_path, provider_mode)
+        result["session_creation_seconds"] = info["session_creation_seconds"]
+        result["provider_used"] = info["provider_used"]
+        input_name = session.get_inputs()[0].name
+        for _ in range(runs):
+            started = time.perf_counter()
+            output = session.run(None, {input_name: tensor})[0]
+            result["inference_seconds"].append(round(time.perf_counter() - started, 3))
+            result["output_shape"] = list(output.shape)
+        if result["inference_seconds"]:
+            result["mean_inference_seconds"] = round(float(np.mean(result["inference_seconds"])), 3)
+        result["success"] = True
+    except Exception as exc:
+        result["error"] = str(exc)
+    return result
+
+
+def write_benchmark_reports(payload):
+    report_dir = REPORTS_DIR
+    report_dir.mkdir(parents=True, exist_ok=True)
+    json_path = report_dir / "directml-benchmark.json"
+    md_path = report_dir / "directml-benchmark.md"
+    write_json(json_path, payload)
+    lines = [
+        "# ForJyn DirectML Benchmark",
+        "",
+        f"ONNX: `{payload['onnx']}`",
+        f"Content: `{payload['content']}`",
+        f"Runs: `{payload['runs']}`",
+        f"DirectML available: `{payload['directml_available']}`",
+        "",
+        "| Provider mode | Provider used | Session creation seconds | Mean inference seconds | Output shape | Success | Error |",
+        "|---|---|---:|---:|---|---|---|",
+    ]
+    for item in payload["results"]:
+        lines.append(
+            "| {provider_mode} | {provider_used} | {session_creation_seconds} | {mean} | {shape} | {success} | {error} |".format(
+                provider_mode=item["provider_mode"],
+                provider_used=item.get("provider_used") or "",
+                session_creation_seconds=item.get("session_creation_seconds"),
+                mean=item.get("mean_inference_seconds"),
+                shape=item.get("output_shape"),
+                success=item.get("success"),
+                error=(item.get("error") or "").replace("|", "\\|"),
+            )
+        )
+    lines += [
+        "",
+        f"Recommendation: {payload['recommendation']}",
+    ]
+    md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return json_path, md_path
+
+
+def benchmark_onnx(args):
+    onnx_path = repo_path(args.onnx)
+    content = repo_path(args.content)
+    if not onnx_path.exists():
+        raise SystemExit(f"ONNX model missing: {onnx_path}")
+    if not content.exists():
+        raise SystemExit(f"Content image missing: {content}")
+    ensure_supported_image(content, "content")
+    with Image.open(content) as image:
+        tensor = pil_to_tensor(image.convert("RGB"))
+
+    import onnxruntime as ort
+
+    directml_available = directml_provider_name(ort) is not None
+    results = [benchmark_provider(onnx_path, tensor, "cpu", args.runs)]
+    if directml_available:
+        results.append(benchmark_provider(onnx_path, tensor, "directml", args.runs))
+
+    cpu_result = next((item for item in results if item["provider_mode"] == "cpu" and item["success"]), None)
+    dml_result = next((item for item in results if item["provider_mode"] == "directml" and item["success"]), None)
+    if dml_result and cpu_result and dml_result.get("mean_inference_seconds") is not None:
+        if dml_result["mean_inference_seconds"] < cpu_result["mean_inference_seconds"]:
+            recommendation = "DirectML was faster in this local micro benchmark. Keep CPU fallback enabled."
+        else:
+            recommendation = "DirectML was not faster in this local micro benchmark. Keep CPU as the automatic default."
+    elif directml_available:
+        recommendation = "DirectML is installed but failed in this benchmark. Keep CPU as the automatic default."
+    else:
+        recommendation = "DirectML is not available. CPU remains the only backend."
+
+    payload = {
+        "onnx": rel(onnx_path),
+        "content": rel(content),
+        "runs": args.runs,
+        "input_shape": list(tensor.shape),
+        "directml_available": directml_available,
+        "available_providers": ort.get_available_providers(),
+        "results": results,
+        "recommendation": recommendation,
+    }
+    json_path, md_path = write_benchmark_reports(payload)
+    payload["reports"] = {"json": rel(json_path), "markdown": rel(md_path)}
+    print(json.dumps(payload, indent=2, sort_keys=True))
+
+
+def directml_provider_name(ort):
+    providers = ort.get_available_providers()
+    for name in DIRECTML_PROVIDER_NAMES:
+        if name in providers:
+            return name
+    return None
+
+
+def make_session_options(ort, provider_name):
+    if provider_name in DIRECTML_PROVIDER_NAMES:
+        options = ort.SessionOptions()
+        options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+        options.enable_mem_pattern = False
+        return options
+    return None
+
+
+def create_ort_session(onnx_path, provider_mode="auto"):
+    import onnxruntime as ort
+
+    available = ort.get_available_providers()
+    warning = None
+    provider_name = "CPUExecutionProvider"
+    if provider_mode == "cpu":
+        providers = ["CPUExecutionProvider"]
+    elif provider_mode == "directml":
+        provider_name = directml_provider_name(ort)
+        if not provider_name:
+            raise RuntimeError(f"DirectML provider is not available. Installed providers: {available}")
+        providers = [provider_name, "CPUExecutionProvider"]
+    else:
+        provider_name = directml_provider_name(ort)
+        if provider_name:
+            providers = [provider_name, "CPUExecutionProvider"]
+        else:
+            providers = ["CPUExecutionProvider"]
+            provider_name = "CPUExecutionProvider"
+
+    started = time.perf_counter()
+    try:
+        options = make_session_options(ort, providers[0])
+        if options is not None:
+            session = ort.InferenceSession(str(onnx_path), sess_options=options, providers=providers)
+        else:
+            session = ort.InferenceSession(str(onnx_path), providers=providers)
+    except Exception as exc:
+        if provider_mode == "auto" and providers[0] != "CPUExecutionProvider":
+            warning = f"DirectML session creation failed; using CPU fallback. Reason: {exc}"
+            started = time.perf_counter()
+            session = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
+            return session, {
+                "provider_mode": provider_mode,
+                "provider_used": "CPUExecutionProvider",
+                "available_providers": available,
+                "warning": warning,
+                "session_creation_seconds": round(time.perf_counter() - started, 3),
+            }
+        raise
+    return session, {
+        "provider_mode": provider_mode,
+        "provider_used": session.get_providers()[0] if session.get_providers() else providers[0],
+        "available_providers": available,
+        "warning": warning,
+        "session_creation_seconds": round(time.perf_counter() - started, 3),
+    }
+
+
+def run_session_with_auto_fallback(onnx_path, provider_mode, run_callback):
+    session, info = create_ort_session(onnx_path, provider_mode)
+    try:
+        return run_callback(session), info
+    except Exception as exc:
+        if provider_mode == "auto" and info["provider_used"] != "CPUExecutionProvider":
+            warning = f"DirectML inference failed; using CPU fallback. Reason: {exc}"
+            print(f"WARNING: {warning}", flush=True)
+            session, info = create_ort_session(onnx_path, "cpu")
+            info["warning"] = warning
+            return run_callback(session), info
+        raise
+
+
 def run_all(args):
     styles = image_paths(STYLE_DIR)
     if not styles:
@@ -904,6 +1105,7 @@ def run_all(args):
             style_size=args.style_size,
             device=args.device,
             allow_synthetic_fallback=args.allow_synthetic_fallback,
+            ort_provider=args.ort_provider,
             seed=args.seed,
         )
         models.append(run_one(run_args))
@@ -929,6 +1131,9 @@ def build_parser():
         command.add_argument("--allow-synthetic-fallback", action="store_true")
         command.add_argument("--seed", type=int, default=20260602)
 
+    def add_ort_provider_arg(command):
+        command.add_argument("--ort-provider", choices=ORT_PROVIDER_CHOICES, default="auto")
+
     train = subparsers.add_parser("train-one", help="Train one PyTorch checkpoint from one style image")
     train.add_argument("--style", required=True)
     train.add_argument("--name")
@@ -942,21 +1147,25 @@ def build_parser():
     validate = subparsers.add_parser("validate-one", help="Validate one ONNX model on realistic tensor shapes")
     validate.add_argument("--model-dir", required=True)
     validate.add_argument("--seed", type=int, default=20260602)
+    add_ort_provider_arg(validate)
     validate.set_defaults(func=lambda args: validate_one(args))
 
     apply_single = subparsers.add_parser("apply-one", help="Apply one ONNX model to one content image")
     apply_single.add_argument("--model-dir", required=True)
     apply_single.add_argument("--content", required=True)
+    add_ort_provider_arg(apply_single)
     apply_single.set_defaults(func=lambda args: apply_one(args))
 
     apply_all = subparsers.add_parser("apply-batch", help="Apply one ONNX model to all content images")
     apply_all.add_argument("--model-dir", required=True)
+    add_ort_provider_arg(apply_all)
     apply_all.set_defaults(func=lambda args: apply_batch(args))
 
     run = subparsers.add_parser("run-one", help="Train, export, validate, apply batch, and create contact sheet")
     run.add_argument("--style", required=True)
     run.add_argument("--name")
     add_training_args(run)
+    add_ort_provider_arg(run)
     run.set_defaults(func=lambda args: run_one(args))
 
     job = subparsers.add_parser("run-job", help="GUI-friendly one-content/one-style workflow")
@@ -965,6 +1174,7 @@ def build_parser():
     job.add_argument("--name")
     job.add_argument("--output-root", default=str(OUTPUT_DIR))
     add_training_args(job)
+    add_ort_provider_arg(job)
     job.set_defaults(func=lambda args: run_job(args))
 
     recover = subparsers.add_parser("recover-job", help="Recover a trained checkpoint without retraining")
@@ -972,13 +1182,21 @@ def build_parser():
     recover.add_argument("--content", required=True)
     recover.add_argument("--output-dir", required=True)
     recover.add_argument("--seed", type=int, default=20260602)
+    add_ort_provider_arg(recover)
     recover.set_defaults(func=lambda args: recover_job(args))
 
     acceleration = subparsers.add_parser("check-acceleration", help="Report CPU/GPU/ONNX Runtime provider availability")
     acceleration.set_defaults(func=lambda args: check_acceleration(args))
 
+    benchmark = subparsers.add_parser("benchmark-onnx", help="Benchmark one ONNX model on CPU and DirectML when available")
+    benchmark.add_argument("--onnx", required=True)
+    benchmark.add_argument("--content", required=True)
+    benchmark.add_argument("--runs", type=int, default=3)
+    benchmark.set_defaults(func=lambda args: benchmark_onnx(args))
+
     run_all_command = subparsers.add_parser("run-all", help="Run the full workflow for all style images")
     add_training_args(run_all_command)
+    add_ort_provider_arg(run_all_command)
     run_all_command.set_defaults(func=lambda args: run_all(args))
 
     return parser

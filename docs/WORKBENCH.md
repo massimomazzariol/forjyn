@@ -28,6 +28,14 @@ ForJyn uses GPU only if the local PyTorch/CUDA environment supports it. If the G
 
 DirectML may be useful later for ONNX inference acceleration on compatible Windows GPUs, but ForJyn does not automatically install or enable DirectML.
 
+## Optional DirectML ONNX Inference
+
+DirectML is optional. When `onnxruntime-directml` is available, ForJyn can use it for ONNX Runtime validation and apply/inference only.
+
+DirectML does not accelerate PyTorch training in this setup. Training remains CPU-only unless the local PyTorch environment exposes CUDA.
+
+If DirectML is unavailable, incompatible, or fails during inference, ForJyn keeps a CPU fallback. Do not treat CPU fallback as a workflow failure.
+
 ## What You Get
 
 For each style/reference image, ForJyn creates one output folder containing:
