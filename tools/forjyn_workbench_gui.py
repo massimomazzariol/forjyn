@@ -7,9 +7,24 @@ import sys
 import threading
 from datetime import datetime
 from pathlib import Path
+import tkinter as tk
 from tkinter import END, DISABLED, NORMAL, StringVar, Tk, filedialog, messagebox
 from tkinter import ttk
 from tkinter.scrolledtext import ScrolledText
+
+from PIL import Image, ImageTk
+
+
+TOOLS_DIR = Path(__file__).resolve().parent
+if str(TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(TOOLS_DIR))
+
+from forjyn_reference_generator import (
+    DEFAULTS as REFERENCE_DEFAULTS,
+    PRESETS as REFERENCE_PRESETS,
+    generate_references,
+    save_reference,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -138,10 +153,18 @@ class ForJynWorkbenchApp:
         self.running = False
         self.log_queue = queue.Queue()
 
+        self._configure_style()
         self._build_ui()
         self._write_initial_log()
         self._update_start_state()
         self._poll_log_queue()
+
+    def _configure_style(self):
+        self.style = ttk.Style(self.root)
+        self.style.configure("Title.TLabel", font=("Segoe UI", 18, "bold"))
+        self.style.configure("Section.TLabelframe.Label", font=("Segoe UI", 9, "bold"))
+        self.style.configure("Accent.TButton", font=("Segoe UI", 10, "bold"))
+        self.style.configure("Small.TLabel", font=("Segoe UI", 8))
 
     def _build_ui(self):
         self.root.columnconfigure(0, weight=1)
@@ -152,7 +175,7 @@ class ForJynWorkbenchApp:
         frame.columnconfigure(0, weight=1)
         frame.rowconfigure(7, weight=1)
 
-        title = ttk.Label(frame, text="ForJyn Workbench", font=("Segoe UI", 18, "bold"))
+        title = ttk.Label(frame, text="ForJyn Workbench", style="Title.TLabel")
         title.grid(row=0, column=0, sticky="w")
         subtitle = ttk.Label(
             frame,
@@ -191,6 +214,7 @@ class ForJynWorkbenchApp:
         style_box = ttk.LabelFrame(frame, text="Step 2 - Choose style/reference images", padding=10)
         style_box.grid(row=4, column=0, sticky="nsew", pady=6)
         style_box.columnconfigure(0, weight=1)
+        style_box.rowconfigure(1, weight=1)
         ttk.Label(style_box, text="ForJyn will train one model for each selected style image.").grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 6))
         self.style_list = ttk.Treeview(style_box, columns=("file", "folder"), show="headings", height=5)
         self.style_list.heading("file", text="File")
@@ -198,8 +222,16 @@ class ForJynWorkbenchApp:
         self.style_list.column("file", width=190, stretch=False)
         self.style_list.column("folder", stretch=True)
         self.style_list.grid(row=1, column=0, sticky="nsew", padx=(0, 8))
-        self.choose_styles_button = ttk.Button(style_box, text="Choose style/reference images", command=self.choose_styles)
-        self.choose_styles_button.grid(row=1, column=1, sticky="n")
+        style_actions = ttk.Frame(style_box)
+        style_actions.grid(row=1, column=1, sticky="n")
+        self.choose_styles_button = ttk.Button(style_actions, text="Choose style/reference images", command=self.choose_styles)
+        self.choose_styles_button.grid(row=0, column=0, sticky="ew")
+        self.generate_refs_button = ttk.Button(
+            style_actions,
+            text="Generate reference images",
+            command=self.open_reference_generator,
+        )
+        self.generate_refs_button.grid(row=1, column=0, sticky="ew", pady=(8, 0))
         ttk.Label(style_box, textvariable=self.styles_summary).grid(row=2, column=0, columnspan=2, sticky="w", pady=(6, 0))
 
         quality_box = ttk.LabelFrame(frame, text="Step 3 - Quality", padding=10)
@@ -222,7 +254,7 @@ class ForJynWorkbenchApp:
         generate_box = ttk.LabelFrame(frame, text="Step 4 - Generate", padding=10)
         generate_box.grid(row=6, column=0, sticky="ew", pady=6)
         generate_box.columnconfigure(3, weight=1)
-        self.start_button = ttk.Button(generate_box, text="Start", command=self.start_jobs)
+        self.start_button = ttk.Button(generate_box, text="Start", command=self.start_jobs, style="Accent.TButton")
         self.start_button.grid(row=0, column=0, padx=(0, 8))
         self.open_output_button = ttk.Button(generate_box, text="Open output folder", command=self.open_output, state=DISABLED)
         self.open_output_button.grid(row=0, column=1, padx=(0, 8))
@@ -268,6 +300,35 @@ class ForJynWorkbenchApp:
             self._append_log(f"Selected content photo: {Path(path).name}\n")
             self._update_start_state()
 
+    def _refresh_style_list(self):
+        self.style_list.delete(*self.style_list.get_children())
+        for path in self.style_paths:
+            item = Path(path)
+            self.style_list.insert("", END, values=(item.name, str(item.parent)))
+        count = len(self.style_paths)
+        if count:
+            self.styles_summary.set(f"{count} style/reference image{'s' if count != 1 else ''} selected")
+        else:
+            self.styles_summary.set("No style/reference images selected")
+
+    def add_style_paths(self, paths, replace=False):
+        if replace:
+            self.style_paths = []
+        seen = {str(Path(path).resolve()).casefold() for path in self.style_paths}
+        added = 0
+        for path in paths:
+            resolved = str(Path(path).resolve())
+            key = resolved.casefold()
+            if key in seen:
+                continue
+            self.style_paths.append(resolved)
+            seen.add(key)
+            added += 1
+        self._refresh_style_list()
+        if added:
+            self._append_log(f"Added {added} style/reference image{'s' if added != 1 else ''}.\n")
+        self._update_start_state()
+
     def choose_styles(self):
         paths = filedialog.askopenfilenames(
             title="Choose style/reference images",
@@ -275,15 +336,10 @@ class ForJynWorkbenchApp:
             filetypes=IMAGE_FILETYPES,
         )
         if paths:
-            self.style_paths = list(paths)
-            self.style_list.delete(*self.style_list.get_children())
-            for path in self.style_paths:
-                item = Path(path)
-                self.style_list.insert("", END, values=(item.name, str(item.parent)))
-            count = len(self.style_paths)
-            self.styles_summary.set(f"{count} style/reference image{'s' if count != 1 else ''} selected")
-            self._append_log(f"Selected {count} style/reference image{'s' if count != 1 else ''}.\n")
-            self._update_start_state()
+            self.add_style_paths(paths, replace=True)
+
+    def open_reference_generator(self):
+        ReferenceGeneratorWindow(self.root, self.add_style_paths, self._append_log)
 
     def _update_start_state(self):
         can_start = bool(self.content_path.get()) and bool(self.style_paths) and not self.running
@@ -292,6 +348,7 @@ class ForJynWorkbenchApp:
     def _set_inputs_state(self, state):
         self.choose_content_button.configure(state=state)
         self.choose_styles_button.configure(state=state)
+        self.generate_refs_button.configure(state=state)
         self.quality_menu.configure(state="readonly" if state == NORMAL else DISABLED)
         self.open_workbench_button.configure(state=state)
 
@@ -530,6 +587,293 @@ class ForJynWorkbenchApp:
         target = self.last_output_dir or OUTPUTS_DIR
         if target:
             open_folder(target)
+
+
+class ReferenceGeneratorWindow:
+    def __init__(self, parent, add_paths_callback, log_callback):
+        self.parent = parent
+        self.add_paths_callback = add_paths_callback
+        self.log_callback = log_callback
+        self.generated_paths = []
+        self.selected_path = None
+        self.thumbnail_images = []
+        self.thumbnail_widgets = {}
+        self.result_queue = queue.Queue()
+        self.closed = False
+        self.busy = False
+
+        self.window = tk.Toplevel(parent)
+        self.window.title("ForJyn Reference Generator")
+        self.window.minsize(920, 680)
+        self.window.protocol("WM_DELETE_WINDOW", self.close)
+
+        self.preset_options = {info["name"]: slug for slug, info in REFERENCE_PRESETS.items()}
+        self.preset = StringVar(value=REFERENCE_PRESETS["neon-bloom"]["name"])
+        self.seed_mode = StringVar(value="Random")
+        self.seed_value = StringVar()
+        self.status = StringVar(value="Ready")
+        self.count = tk.IntVar(value=REFERENCE_DEFAULTS["count"])
+        self.width = tk.IntVar(value=REFERENCE_DEFAULTS["width"])
+        self.height = tk.IntVar(value=REFERENCE_DEFAULTS["height"])
+        self.intensity = tk.DoubleVar(value=REFERENCE_DEFAULTS["intensity"])
+        self.glow = tk.DoubleVar(value=REFERENCE_DEFAULTS["glow"])
+        self.contrast = tk.DoubleVar(value=REFERENCE_DEFAULTS["contrast"])
+        self.texture = tk.DoubleVar(value=REFERENCE_DEFAULTS["texture"])
+        self.complexity = tk.DoubleVar(value=REFERENCE_DEFAULTS["complexity"])
+
+        self._build_ui()
+
+    def _build_ui(self):
+        self.window.columnconfigure(0, weight=0)
+        self.window.columnconfigure(1, weight=1)
+        self.window.rowconfigure(0, weight=1)
+
+        controls = ttk.Frame(self.window, padding=14)
+        controls.grid(row=0, column=0, sticky="ns")
+
+        preview_box = ttk.Frame(self.window, padding=(0, 14, 14, 14))
+        preview_box.grid(row=0, column=1, sticky="nsew")
+        preview_box.columnconfigure(0, weight=1)
+        preview_box.rowconfigure(1, weight=1)
+
+        ttk.Label(controls, text="Reference Generator", style="Title.TLabel").grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 12))
+        ttk.Label(controls, text="Preset").grid(row=1, column=0, sticky="w", pady=4)
+        self.preset_menu = ttk.Combobox(
+            controls,
+            textvariable=self.preset,
+            values=list(self.preset_options.keys()),
+            state="readonly",
+            width=28,
+        )
+        self.preset_menu.grid(row=1, column=1, columnspan=2, sticky="ew", pady=4)
+
+        ttk.Label(controls, text="Count").grid(row=2, column=0, sticky="w", pady=4)
+        self.count_spin = ttk.Spinbox(controls, from_=1, to=12, textvariable=self.count, width=8)
+        self.count_spin.grid(row=2, column=1, sticky="w", pady=4)
+        ttk.Label(controls, text="max 12", style="Small.TLabel").grid(row=2, column=2, sticky="w", padx=(6, 0))
+
+        ttk.Label(controls, text="Width").grid(row=3, column=0, sticky="w", pady=4)
+        self.width_spin = ttk.Spinbox(controls, from_=256, to=2048, increment=64, textvariable=self.width, width=8)
+        self.width_spin.grid(row=3, column=1, sticky="w", pady=4)
+        ttk.Label(controls, text="Height").grid(row=4, column=0, sticky="w", pady=4)
+        self.height_spin = ttk.Spinbox(controls, from_=256, to=2048, increment=64, textvariable=self.height, width=8)
+        self.height_spin.grid(row=4, column=1, sticky="w", pady=4)
+
+        ttk.Label(controls, text="Seed").grid(row=5, column=0, sticky="w", pady=(12, 4))
+        self.seed_menu = ttk.Combobox(controls, textvariable=self.seed_mode, values=["Random", "Numeric"], state="readonly", width=10)
+        self.seed_menu.grid(row=5, column=1, sticky="w", pady=(12, 4))
+        self.seed_entry = ttk.Entry(controls, textvariable=self.seed_value, width=12)
+        self.seed_entry.grid(row=5, column=2, sticky="w", padx=(6, 0), pady=(12, 4))
+
+        self.slider_widgets = []
+        row = 6
+        for label, variable in [
+            ("Intensity", self.intensity),
+            ("Glow", self.glow),
+            ("Contrast", self.contrast),
+            ("Texture", self.texture),
+            ("Complexity", self.complexity),
+        ]:
+            row = self._add_slider(controls, row, label, variable)
+
+        button_row = row + 1
+        self.generate_button = ttk.Button(controls, text="Generate variations", command=self.generate, style="Accent.TButton")
+        self.generate_button.grid(row=button_row, column=0, columnspan=3, sticky="ew", pady=(18, 6))
+        self.save_selected_button = ttk.Button(controls, text="Save selected to references", command=self.save_selected, state=DISABLED)
+        self.save_selected_button.grid(row=button_row + 1, column=0, columnspan=3, sticky="ew", pady=3)
+        self.save_all_button = ttk.Button(controls, text="Save all to references", command=self.save_all, state=DISABLED)
+        self.save_all_button.grid(row=button_row + 2, column=0, columnspan=3, sticky="ew", pady=3)
+        self.close_button = ttk.Button(controls, text="Close", command=self.close)
+        self.close_button.grid(row=button_row + 3, column=0, columnspan=3, sticky="ew", pady=(12, 0))
+        ttk.Label(controls, textvariable=self.status, wraplength=290).grid(row=button_row + 4, column=0, columnspan=3, sticky="w", pady=(12, 0))
+
+        ttk.Label(preview_box, text="Variations").grid(row=0, column=0, sticky="w", pady=(0, 8))
+        self.preview_frame = ttk.Frame(preview_box)
+        self.preview_frame.grid(row=1, column=0, sticky="nsew")
+        for index in range(4):
+            self.preview_frame.columnconfigure(index, weight=1)
+        self.empty_preview = ttk.Label(
+            self.preview_frame,
+            text="Generate variations to preview procedural reference images.",
+            foreground="#586174",
+        )
+        self.empty_preview.grid(row=0, column=0, columnspan=4, sticky="n", pady=60)
+
+    def _add_slider(self, parent, row, label, variable):
+        value_label = StringVar(value=str(int(variable.get())))
+
+        def on_change(value):
+            value_label.set(str(int(float(value))))
+
+        ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", pady=(10, 0))
+        slider = ttk.Scale(parent, from_=0, to=100, variable=variable, command=on_change)
+        slider.grid(row=row, column=1, sticky="ew", pady=(10, 0))
+        ttk.Label(parent, textvariable=value_label, width=4).grid(row=row, column=2, sticky="e", pady=(10, 0))
+        self.slider_widgets.append(slider)
+        return row + 1
+
+    def _params(self):
+        preset = self.preset_options[self.preset.get()]
+        count = max(1, min(12, int(self.count.get())))
+        width = max(64, int(self.width.get()))
+        height = max(64, int(self.height.get()))
+        seed = "random"
+        if self.seed_mode.get() == "Numeric" or self.seed_value.get().strip():
+            seed = int(self.seed_value.get().strip())
+        return {
+            "preset": preset,
+            "count": count,
+            "seed": seed,
+            "width": width,
+            "height": height,
+            "intensity": int(self.intensity.get()),
+            "glow": int(self.glow.get()),
+            "contrast": int(self.contrast.get()),
+            "texture": int(self.texture.get()),
+            "complexity": int(self.complexity.get()),
+        }
+
+    def _set_busy(self, busy):
+        self.busy = busy
+        state = DISABLED if busy else NORMAL
+        readonly_state = DISABLED if busy else "readonly"
+        self.generate_button.configure(state=state)
+        self.count_spin.configure(state=state)
+        self.width_spin.configure(state=state)
+        self.height_spin.configure(state=state)
+        self.seed_entry.configure(state=state)
+        self.seed_menu.configure(state=readonly_state)
+        self.preset_menu.configure(state=readonly_state)
+        for widget in self.slider_widgets:
+            widget.configure(state=state)
+        self._update_save_state()
+
+    def _update_save_state(self):
+        if self.busy or not self.generated_paths:
+            state = DISABLED
+        else:
+            state = NORMAL
+        self.save_all_button.configure(state=state)
+        self.save_selected_button.configure(state=NORMAL if state == NORMAL and self.selected_path else DISABLED)
+
+    def generate(self):
+        try:
+            params = self._params()
+        except Exception as exc:
+            messagebox.showerror("Invalid generator settings", f"Check count, size, and seed values.\n\n{exc}")
+            return
+        self._set_busy(True)
+        self.status.set("Generating variations...")
+        self.generated_paths = []
+        self.selected_path = None
+        self._render_previews([])
+        thread = threading.Thread(target=self._generate_worker, args=(params,), daemon=True)
+        thread.start()
+        self.window.after(100, self._poll_results)
+
+    def _generate_worker(self, params):
+        try:
+            result = generate_references(**params)
+            self.result_queue.put(("result", result))
+        except Exception as exc:
+            self.result_queue.put(("error", exc))
+
+    def _poll_results(self):
+        if self.closed:
+            return
+        try:
+            while True:
+                kind, payload = self.result_queue.get_nowait()
+                if kind == "result":
+                    self.generated_paths = payload["images"]
+                    self.selected_path = self.generated_paths[0] if self.generated_paths else None
+                    self._render_previews(self.generated_paths)
+                    self.status.set(f"Generated {len(self.generated_paths)} variations. Contact sheet: {rel(payload['contact_sheet'])}")
+                    self.log_callback(f"Generated reference variations: {rel(payload['temp_dir'])}\n")
+                    self._set_busy(False)
+                elif kind == "error":
+                    self.status.set(f"Generation failed: {payload}")
+                    self.log_callback(f"Reference generation failed: {payload}\n")
+                    self._set_busy(False)
+        except queue.Empty:
+            pass
+        if self.busy:
+            self.window.after(100, self._poll_results)
+
+    def _render_previews(self, paths):
+        for child in self.preview_frame.winfo_children():
+            child.destroy()
+        self.thumbnail_images = []
+        self.thumbnail_widgets = {}
+        if not paths:
+            self.empty_preview = ttk.Label(
+                self.preview_frame,
+                text="Generate variations to preview procedural reference images.",
+                foreground="#586174",
+            )
+            self.empty_preview.grid(row=0, column=0, columnspan=4, sticky="n", pady=60)
+            return
+        for index, path in enumerate(paths):
+            image = Image.open(path).convert("RGB")
+            image.thumbnail((150, 150), Image.Resampling.LANCZOS)
+            photo = ImageTk.PhotoImage(image)
+            self.thumbnail_images.append(photo)
+            button = tk.Button(
+                self.preview_frame,
+                image=photo,
+                text=Path(path).name,
+                compound="top",
+                width=180,
+                height=194,
+                wraplength=160,
+                command=lambda selected=path: self.select_image(selected),
+            )
+            button.grid(row=index // 4, column=index % 4, padx=6, pady=6, sticky="n")
+            self.thumbnail_widgets[path] = button
+        self._highlight_selection()
+
+    def select_image(self, path):
+        self.selected_path = path
+        self._highlight_selection()
+        self._update_save_state()
+
+    def _highlight_selection(self):
+        for path, widget in self.thumbnail_widgets.items():
+            if path == self.selected_path:
+                widget.configure(relief="solid", bd=4, highlightthickness=2, highlightbackground="#00A6D6")
+            else:
+                widget.configure(relief="flat", bd=1, highlightthickness=0)
+
+    def save_selected(self):
+        if not self.selected_path:
+            messagebox.showerror("No selection", "Select one generated reference image first.")
+            return
+        try:
+            saved = save_reference(self.selected_path)
+        except Exception as exc:
+            messagebox.showerror("Save failed", str(exc))
+            return
+        self.add_paths_callback([saved["image"]])
+        self.status.set(f"Saved selected reference: {Path(saved['image']).name}")
+        self.log_callback(f"Saved generated reference: {rel(saved['image'])}\n")
+
+    def save_all(self):
+        if not self.generated_paths:
+            return
+        saved_paths = []
+        try:
+            for path in self.generated_paths:
+                saved_paths.append(save_reference(path)["image"])
+        except Exception as exc:
+            messagebox.showerror("Save failed", str(exc))
+            return
+        self.add_paths_callback(saved_paths)
+        self.status.set(f"Saved {len(saved_paths)} generated references.")
+        self.log_callback(f"Saved {len(saved_paths)} generated references to {rel(Path(saved_paths[0]).parent)}\n")
+
+    def close(self):
+        self.closed = True
+        self.window.destroy()
 
 
 def parse_args():

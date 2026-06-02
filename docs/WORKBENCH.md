@@ -14,6 +14,31 @@ ForJyn Workbench is the simple Windows-first way to create a local per-style ONN
 8. Wait.
 9. Click `Open output folder`.
 
+Step 2 also includes `Generate reference images`. This opens the local `ForJyn Reference Generator`, which can create procedural reference-image variations without downloading assets or using external AI generation.
+
+The generator currently includes these presets:
+
+- Neon Bloom
+- Cyber Edge
+- Liquid Neon
+- Neon Poster
+- Holographic Glass
+- Painterly Color Storm
+
+Each generation stores PNG variations and metadata under:
+
+```text
+ForJyn_Workbench/generated_references/
+```
+
+Generated images can be previewed, selected, and saved into the Workbench reference list. Saved generated references are copied into:
+
+```text
+ForJyn_Workbench/generated_references/saved/
+```
+
+The generated files and metadata are local workbench artifacts and should not be committed.
+
 The GUI also shows a compact status area with:
 
 - Workbench readiness.
