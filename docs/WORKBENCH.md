@@ -14,6 +14,16 @@ ForJyn Workbench is the simple Windows-first way to create a local per-style ONN
 8. Wait.
 9. Click `Open output folder`.
 
+The GUI also shows a compact status area with:
+
+- Workbench readiness.
+- CPU/GPU availability.
+- PyTorch version.
+- ONNX Runtime providers.
+- Output folder path.
+
+ForJyn uses GPU only if the local PyTorch/CUDA environment supports it. If the GUI shows `CPU only`, that is not necessarily a bug; it can simply mean the installed PyTorch build is CPU-only or CUDA is unavailable on the machine.
+
 ## What You Get
 
 For each style/reference image, ForJyn creates one output folder containing:

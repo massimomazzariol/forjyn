@@ -37,13 +37,15 @@ The workbench still does not claim final model quality without human review.
 
 ## ForJyn Workbench
 
-The easiest way on Windows is:
+The easiest way on Windows is the minimal GUI:
 
 1. Run `run_forjyn_workbench.bat`.
 2. Choose a content photo.
 3. Choose one or more style/reference images.
 4. Press Start.
 5. Copy the generated ONNX from `ForJyn_Workbench/outputs/`.
+
+The GUI shows basic CPU/GPU, PyTorch, and ONNX Runtime status before you start.
 
 For details, read [`docs/WORKBENCH.md`](docs/WORKBENCH.md).
 
