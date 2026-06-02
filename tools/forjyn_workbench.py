@@ -1,5 +1,7 @@
 import argparse
+import contextlib
 import hashlib
+import io
 import json
 import math
 import os
@@ -12,7 +14,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, features
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,7 +29,7 @@ CACHE_DIR = TECHNICAL_DIR / "cache"
 LOGS_DIR = TECHNICAL_DIR / "logs"
 PREVIEWS_DIR = TECHNICAL_DIR / "previews"
 
-IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 VALIDATION_SHAPES = [
     (1, 3, 1090, 1280),
     (1, 3, 1080, 1920),
@@ -36,7 +38,7 @@ VALIDATION_SHAPES = [
 ]
 
 GUIDES = {
-    CONTENT_DIR / "PUT_OPTIONAL_CONTENT_PHOTOS_HERE.txt": "Optional: put photos you want to transform in this folder.\nThe GUI can also choose photos from any local path.\nSupported formats: jpg, jpeg, png, webp, bmp.\n",
+    CONTENT_DIR / "PUT_OPTIONAL_CONTENT_PHOTOS_HERE.txt": "Optional: put photos you want to transform in this folder.\nThe GUI can also choose photos from any local path.\nSupported formats: jpg, jpeg, png, webp.\n",
     STYLE_DIR / "PUT_OPTIONAL_STYLE_REFERENCES_HERE.txt": "Optional: put style/reference images in this folder.\nThe GUI can also choose style images from any local path.\n",
     OUTPUT_DIR / "RESULTS_WILL_APPEAR_HERE.txt": "ForJyn writes final user-facing job outputs here.\n",
 }
@@ -54,6 +56,28 @@ def rel(path):
         return str(Path(path).resolve().relative_to(ROOT)).replace("\\", "/")
     except ValueError:
         return str(Path(path).resolve()).replace("\\", "/")
+
+
+def webp_supported():
+    return bool(features.check("webp"))
+
+
+def ensure_supported_image(path, label):
+    suffix = Path(path).suffix.lower()
+    supported = ", ".join(sorted(IMAGE_EXTENSIONS))
+    if suffix not in IMAGE_EXTENSIONS:
+        raise SystemExit(f"Unsupported {label} image format: {suffix}. Supported formats: {supported}")
+    if suffix == ".webp" and not webp_supported():
+        raise SystemExit("WebP is not supported by the current Pillow installation. Please convert this image to JPG or PNG.")
+    try:
+        with Image.open(path) as image:
+            image.verify()
+    except Exception as exc:
+        raise SystemExit(f"Could not read {label} image: {path}. {exc}") from exc
+
+
+def progress(key, value):
+    print(f"FORJYN_{key}={value}", flush=True)
 
 
 def sha256(path):
@@ -170,7 +194,8 @@ def safe_clear_dir(path):
 
 def local_env():
     env = os.environ.copy()
-    env.setdefault("PYTHONIOENCODING", "utf-8")
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"] = "1"
     env["TORCH_HOME"] = str(CACHE_DIR / "torch")
     env["XDG_CACHE_HOME"] = str(CACHE_DIR / "xdg")
     (CACHE_DIR / "torch").mkdir(parents=True, exist_ok=True)
@@ -180,6 +205,15 @@ def local_env():
 
 def command_display(command):
     return [rel(part) if str(part).startswith(str(ROOT)) else str(part) for part in command]
+
+
+def configure_stdio():
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
 
 
 def cmd_init(_args):
@@ -317,6 +351,7 @@ def train_one(args):
     style = repo_path(args.style)
     if not style.exists():
         raise SystemExit(f"Style image missing: {style}")
+    ensure_supported_image(style, "style/reference")
     name = args.name or style.stem
     if getattr(args, "model_id", None):
         model_id = args.model_id
@@ -462,21 +497,26 @@ def export_one(args):
     primary = path / f"{path.name}.onnx"
     alias = path / "model.onnx"
     started = time.time()
-    torch.onnx.export(
-        wrapper,
-        (torch.randn(1, 3, 256, 320),),
-        str(primary),
-        input_names=["input"],
-        output_names=["output"],
-        dynamic_shapes={
+    export_kwargs = {
+        "input_names": ["input"],
+        "output_names": ["output"],
+        "dynamic_shapes": {
             "input": {
                 0: Dim("batch", min=1),
                 2: Dim("height", min=16),
                 3: Dim("width", min=16),
             }
         },
-        opset_version=18,
-    )
+        "opset_version": 18,
+        "verbose": False,
+    }
+    export_log = io.StringIO()
+    with contextlib.redirect_stdout(export_log), contextlib.redirect_stderr(export_log):
+        try:
+            torch.onnx.export(wrapper, (torch.randn(1, 3, 256, 320),), str(primary), **export_kwargs)
+        except TypeError:
+            export_kwargs.pop("verbose", None)
+            torch.onnx.export(wrapper, (torch.randn(1, 3, 256, 320),), str(primary), **export_kwargs)
     if primary.exists():
         shutil.copy2(primary, alias)
     payload = {
@@ -493,6 +533,7 @@ def export_one(args):
         "load_unexpected_keys": load_result.unexpected_keys,
         "seconds": round(time.time() - started, 3),
         "wrapper": "dynamic final crop to input H/W",
+        "export_log_captured": bool(export_log.getvalue().strip()),
     }
     write_json(path / "export-metadata.json", payload)
     print(json.dumps(payload, indent=2, sort_keys=True))
@@ -556,6 +597,7 @@ def apply_image(model_path, content_path, output_dir=None, style_slug=None):
     onnx_path = primary_onnx_path(model_path)
     session = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
     input_name = session.get_inputs()[0].name
+    ensure_supported_image(content_path, "content")
     original = Image.open(content_path).convert("RGB")
     started = time.perf_counter()
     output_tensor = session.run(None, {input_name: pil_to_tensor(original)})[0]
@@ -662,12 +704,12 @@ def copy_if_exists(source, target):
     return None
 
 
-def write_output_readme(job_dir, job_id, style, content):
+def write_output_readme(job_dir, job_id, style_name, content):
     text = f"""ForJyn output folder
 
 Job: {job_id}
 Content photo: {content.name}
-Style/reference image: {style.name}
+Style/reference image: {style_name}
 
 Files in this folder are local generated artifacts. Review quality before sharing.
 ONNX is not trained directly: ForJyn trained a PyTorch checkpoint, exported ONNX, validated it, then applied ONNX to the content photo.
@@ -676,18 +718,53 @@ The styled image should preserve the original content width and height.
     (job_dir / "README_OUTPUT.txt").write_text(text, encoding="utf-8")
 
 
+def write_job_outputs(trained, content, job_dir, style_slug, style_name=None):
+    progress("STAGE", "applying")
+    progress("MESSAGE", "Applying ONNX to content image")
+    apply_result = apply_image(trained, content, output_dir=job_dir, style_slug=style_slug)
+    write_json(job_dir / "apply-result.json", apply_result)
+
+    primary = primary_onnx_path(trained)
+    final_onnx = copy_if_exists(primary, job_dir / f"{trained.name}.onnx")
+    primary_sidecar = Path(str(primary) + ".data")
+    final_sidecar = copy_if_exists(primary_sidecar, job_dir / f"{trained.name}.onnx.data")
+    for filename in [
+        "model-card.json",
+        "validation.json",
+        "training-log.json",
+        "export-metadata.json",
+        "style-source-metadata.json",
+    ]:
+        copy_if_exists(trained / filename, job_dir / filename)
+
+    job_summary = {
+        "job_id": trained.name,
+        "content": rel(content),
+        "output_dir": rel(job_dir),
+        "technical_model_dir": rel(trained),
+        "onnx": rel(final_onnx) if final_onnx else None,
+        "sidecar": rel(final_sidecar) if final_sidecar else None,
+        "apply_result": apply_result,
+        "quality_status": "not-final-needs-human-review",
+        "regeneration": "functionally similar regeneration; not byte-identical reproduction",
+    }
+    write_json(job_dir / "job-summary.json", job_summary)
+    write_output_readme(job_dir, trained.name, style_name or style_slug, content)
+    progress("ONNX_PATH", final_onnx.resolve() if final_onnx else "")
+    progress("IMAGE_OUTPUT", Path(apply_result["output"]).resolve() if Path(apply_result["output"]).is_absolute() else (ROOT / apply_result["output"]).resolve())
+    return job_summary
+
+
 def run_job(args):
     ensure_dirs()
     content = repo_path(args.content)
     style = repo_path(args.style)
     if not content.exists() or not content.is_file():
         raise SystemExit(f"Content image missing: {content}")
-    if content.suffix.lower() not in IMAGE_EXTENSIONS:
-        raise SystemExit(f"Unsupported content image format: {content.suffix}")
+    ensure_supported_image(content, "content")
     if not style.exists() or not style.is_file():
         raise SystemExit(f"Style/reference image missing: {style}")
-    if style.suffix.lower() not in IMAGE_EXTENSIONS:
-        raise SystemExit(f"Unsupported style/reference image format: {style.suffix}")
+    ensure_supported_image(style, "style/reference")
 
     style_slug = slugify(args.name or style.stem)
     output_root = output_root_path(args.output_root)
@@ -695,6 +772,11 @@ def run_job(args):
     job_dir = output_root / job_id
     job_dir.mkdir(parents=True, exist_ok=False)
 
+    progress("JOB_ID", job_id)
+    progress("STYLE", style_slug)
+    progress("STAGE", "training")
+    progress("MESSAGE", "Training PyTorch checkpoint")
+    progress("PROGRESS", "0")
     print(f"ForJyn job started: {job_id}", flush=True)
     print(f"Content photo: {rel(content)}", flush=True)
     print(f"Style/reference image: {rel(style)}", flush=True)
@@ -718,48 +800,93 @@ def run_job(args):
     print("Phase: training PyTorch TransformerNet checkpoint", flush=True)
     trained = train_one(train_args)
 
+    progress("STAGE", "exporting")
+    progress("MESSAGE", "Exporting ONNX")
     print("Phase: exporting dynamic H/W shape-preserving ONNX", flush=True)
     export_one(argparse.Namespace(model_dir=str(trained)))
 
+    progress("STAGE", "validating")
+    progress("MESSAGE", "Validating ONNX on variable image sizes")
     print("Phase: validating ONNX Runtime CPU output shapes", flush=True)
     validate_one(argparse.Namespace(model_dir=str(trained), seed=args.seed))
 
     print("Phase: applying ONNX to content photo", flush=True)
-    apply_result = apply_image(trained, content, output_dir=job_dir, style_slug=style_slug)
-    write_json(job_dir / "apply-result.json", apply_result)
-
-    primary = primary_onnx_path(trained)
-    final_onnx = copy_if_exists(primary, job_dir / f"{job_id}.onnx")
-    primary_sidecar = Path(str(primary) + ".data")
-    final_sidecar = copy_if_exists(primary_sidecar, job_dir / f"{job_id}.onnx.data")
-    for filename in [
-        "model-card.json",
-        "validation.json",
-        "training-log.json",
-        "export-metadata.json",
-        "style-source-metadata.json",
-    ]:
-        copy_if_exists(trained / filename, job_dir / filename)
-
-    job_summary = {
-        "job_id": job_id,
-        "content": rel(content),
-        "style": rel(style),
-        "output_dir": rel(job_dir),
-        "technical_model_dir": rel(trained),
-        "onnx": rel(final_onnx) if final_onnx else None,
-        "sidecar": rel(final_sidecar) if final_sidecar else None,
-        "apply_result": apply_result,
-        "quality_status": "not-final-needs-human-review",
-        "regeneration": "functionally similar regeneration; not byte-identical reproduction",
-    }
+    job_summary = write_job_outputs(trained, content, job_dir, style_slug, style.name)
+    job_summary["style"] = rel(style)
     write_json(job_dir / "job-summary.json", job_summary)
-    write_output_readme(job_dir, job_id, style, content)
 
+    progress("STAGE", "done")
     print("Phase: complete", flush=True)
     print(json.dumps(job_summary, indent=2, sort_keys=True), flush=True)
     print(f"FORJYN_OUTPUT_DIR={job_dir.resolve()}", flush=True)
     return job_dir
+
+
+def recover_job(args):
+    ensure_dirs()
+    trained = model_dir(args.model_dir)
+    checkpoint_path(trained)
+    content = repo_path(args.content)
+    if not content.exists() or not content.is_file():
+        raise SystemExit(f"Content image missing: {content}")
+    ensure_supported_image(content, "content")
+    job_dir = repo_path(args.output_dir)
+    resolved_job_dir = job_dir.resolve()
+    resolved_workbench = WORKBENCH.resolve()
+    if resolved_job_dir != resolved_workbench and resolved_workbench not in resolved_job_dir.parents:
+        raise SystemExit(f"Output directory must stay inside {WORKBENCH}: {job_dir}")
+    job_dir.mkdir(parents=True, exist_ok=True)
+    style_slug = model_slug(trained.name)
+
+    progress("JOB_ID", trained.name)
+    progress("STYLE", style_slug)
+    progress("STAGE", "exporting")
+    progress("MESSAGE", "Exporting ONNX")
+    print(f"Recovering job from checkpoint: {rel(trained)}", flush=True)
+    export_one(argparse.Namespace(model_dir=str(trained)))
+
+    progress("STAGE", "validating")
+    progress("MESSAGE", "Validating ONNX on variable image sizes")
+    validate_one(argparse.Namespace(model_dir=str(trained), seed=args.seed))
+
+    job_summary = write_job_outputs(trained, content, job_dir, style_slug, style_slug)
+    write_json(job_dir / "job-summary.json", job_summary)
+
+    progress("STAGE", "done")
+    print("Phase: complete", flush=True)
+    print(json.dumps(job_summary, indent=2, sort_keys=True), flush=True)
+    print(f"FORJYN_OUTPUT_DIR={job_dir.resolve()}", flush=True)
+    return job_dir
+
+
+def check_acceleration(_args):
+    print("ForJyn acceleration check")
+    try:
+        import torch
+
+        print(f"PyTorch version: {torch.__version__}")
+        cuda_available = torch.cuda.is_available()
+        print(f"PyTorch CUDA available: {'yes' if cuda_available else 'no'}")
+        if cuda_available:
+            print(f"Training device: CUDA GPU ({torch.cuda.get_device_name(0)})")
+        else:
+            print("Training device: CPU only")
+    except Exception as exc:
+        print(f"PyTorch: not available / environment issue: {exc}")
+        print("PyTorch CUDA available: no")
+        print("Training device: CPU only")
+    try:
+        import onnxruntime as ort
+
+        providers = list(ort.get_available_providers())
+        print("ONNX Runtime available providers: " + (", ".join(providers) if providers else "none"))
+        print(f"DirectMLExecutionProvider available: {'yes' if 'DmlExecutionProvider' in providers or 'DirectMLExecutionProvider' in providers else 'no'}")
+    except Exception as exc:
+        print(f"ONNX Runtime: not available / environment issue: {exc}")
+        print("DirectMLExecutionProvider available: no")
+    print("Supported image extensions: " + ", ".join(sorted(IMAGE_EXTENSIONS)))
+    print(f"WebP supported: {'yes' if webp_supported() else 'no'}")
+    print("Note: Training currently uses PyTorch CPU/CUDA only. DirectML may be evaluated later only for ONNX inference acceleration.")
 
 
 def run_all(args):
@@ -840,6 +967,16 @@ def build_parser():
     add_training_args(job)
     job.set_defaults(func=lambda args: run_job(args))
 
+    recover = subparsers.add_parser("recover-job", help="Recover a trained checkpoint without retraining")
+    recover.add_argument("--model-dir", required=True)
+    recover.add_argument("--content", required=True)
+    recover.add_argument("--output-dir", required=True)
+    recover.add_argument("--seed", type=int, default=20260602)
+    recover.set_defaults(func=lambda args: recover_job(args))
+
+    acceleration = subparsers.add_parser("check-acceleration", help="Report CPU/GPU/ONNX Runtime provider availability")
+    acceleration.set_defaults(func=lambda args: check_acceleration(args))
+
     run_all_command = subparsers.add_parser("run-all", help="Run the full workflow for all style images")
     add_training_args(run_all_command)
     run_all_command.set_defaults(func=lambda args: run_all(args))
@@ -848,6 +985,7 @@ def build_parser():
 
 
 def main():
+    configure_stdio()
     parser = build_parser()
     args = parser.parse_args()
     args.func(args)

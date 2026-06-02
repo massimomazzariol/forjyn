@@ -17,12 +17,16 @@ ForJyn Workbench is the simple Windows-first way to create a local per-style ONN
 The GUI also shows a compact status area with:
 
 - Workbench readiness.
-- CPU/GPU availability.
+- Training device availability.
 - PyTorch version.
 - ONNX Runtime providers.
+- DirectML provider availability for possible future ONNX inference acceleration.
+- WebP support.
 - Output folder path.
 
 ForJyn uses GPU only if the local PyTorch/CUDA environment supports it. If the GUI shows `CPU only`, that is not necessarily a bug; it can simply mean the installed PyTorch build is CPU-only or CUDA is unavailable on the machine.
+
+DirectML may be useful later for ONNX inference acceleration on compatible Windows GPUs, but ForJyn does not automatically install or enable DirectML.
 
 ## What You Get
 
@@ -81,6 +85,29 @@ content image + style/reference image
 
 ForJyn output quality depends on the style image, content photo, training steps, and local environment. Review generated results before sharing them.
 
+## Supported Image Formats
+
+ForJyn accepts:
+
+- JPG
+- JPEG
+- PNG
+- WebP, if supported by the current Pillow installation
+
+If WebP does not work in your Python/Pillow environment, convert the image to JPG or PNG and run the job again.
+
+## Progress And Logs
+
+The GUI shows the current stage:
+
+- Training
+- Exporting ONNX
+- Validating
+- Applying
+- Done
+
+Raw progress percentages from lower-level tools are filtered out of the GUI log so the log stays readable.
+
 ## Where Files Are Stored
 
 User-facing outputs:
@@ -115,6 +142,20 @@ The backend prints a final machine-readable line:
 ```text
 FORJYN_OUTPUT_DIR=C:\...\ForJyn_Workbench\outputs\YYYYMMDD-HHMMSS-style-name
 ```
+
+## Troubleshooting
+
+### Training Completed But ONNX Export Failed
+
+If training finishes but ONNX export or apply fails, the local `checkpoint.pth` may still be usable. You can recover the job without retraining:
+
+```powershell
+.\.venv\Scripts\python tools\forjyn_workbench.py recover-job --model-dir "ForJyn_Workbench\technical\models\YYYYMMDD-HHMMSS-style-name" --content "C:\path\content.webp" --output-dir "ForJyn_Workbench\outputs\YYYYMMDD-HHMMSS-style-name"
+```
+
+This recovery command exports ONNX from the existing checkpoint, validates the ONNX model, applies it to the original content image, and writes output files into the existing output folder.
+
+On Windows, some tools can print Unicode status characters during ONNX export. ForJyn forces UTF-8-safe subprocess handling and quiet export capture so those console characters do not break the job.
 
 ## Regeneration
 

@@ -1,6 +1,7 @@
 import argparse
 import os
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -33,6 +34,9 @@ QUALITY_MODES = {
     "Better quality - 2000 steps": 2000,
 }
 
+IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"]
+PERCENT_LINE_RE = re.compile(r"^\s*\d+(?:\.\d+)?%\s*$")
+
 
 def ensure_workbench_dirs():
     for path in [WORKBENCH, INPUTS_DIR, REFERENCES_DIR, OUTPUTS_DIR, TECHNICAL_DIR]:
@@ -58,9 +62,14 @@ def environment_info():
     info = {
         "workbench": "Ready" if WORKBENCH.exists() else "Not ready",
         "device": "Device: unknown",
+        "cuda_available": "no",
+        "training_device": "CPU only",
         "pytorch": "PyTorch: not available",
         "onnxruntime": "ONNX Runtime: not available",
         "providers": [],
+        "directml_available": "no",
+        "inference_acceleration": "CPU",
+        "webp_supported": "no",
         "errors": [],
     }
     try:
@@ -70,6 +79,8 @@ def environment_info():
         if torch.cuda.is_available():
             name = torch.cuda.get_device_name(0)
             info["device"] = f"GPU: {name} available"
+            info["cuda_available"] = "yes"
+            info["training_device"] = f"CUDA GPU ({name})"
         else:
             info["device"] = "Device: CPU only"
     except Exception as exc:
@@ -82,8 +93,18 @@ def environment_info():
         providers = list(ort.get_available_providers())
         info["providers"] = providers
         info["onnxruntime"] = "ONNX Runtime: " + (", ".join(providers) if providers else "no providers reported")
+        directml = "DmlExecutionProvider" in providers or "DirectMLExecutionProvider" in providers
+        info["directml_available"] = "yes" if directml else "no"
+        info["inference_acceleration"] = "DirectML available" if directml else "DirectML not installed"
     except Exception as exc:
         info["errors"].append(f"ONNX Runtime environment issue: {exc}")
+
+    try:
+        from PIL import features
+
+        info["webp_supported"] = "yes" if features.check("webp") else "no"
+    except Exception as exc:
+        info["errors"].append(f"Pillow WebP check failed: {exc}")
 
     return info
 
@@ -105,10 +126,15 @@ class ForJynWorkbenchApp:
         self.styles_summary = StringVar(value="No style/reference images selected")
         self.quality = StringVar(value="Normal - 800 steps")
         self.progress_status = StringVar(value="Waiting")
+        self.current_job = StringVar(value="Current job: idle")
+        self.current_stage = StringVar(value="Current stage: Waiting")
+        self.style_progress = StringVar(value="Style progress: 0 of 0")
+        self.output_status = StringVar(value=f"Output folder: {rel(OUTPUTS_DIR)}")
         self.env_info = environment_info()
         self.style_paths = []
         self.completed_dirs = []
         self.last_output_dir = None
+        self.current_backend_job_id = None
         self.running = False
         self.log_queue = queue.Queue()
 
@@ -139,9 +165,11 @@ class ForJynWorkbenchApp:
         status_box.columnconfigure(1, weight=1)
         status_items = [
             ("Workbench", self.env_info["workbench"]),
-            ("Device", self.env_info["device"].replace("Device: ", "")),
+            ("Training device", self.env_info["training_device"]),
             ("PyTorch", self.env_info["pytorch"].replace("PyTorch: ", "")),
-            ("ONNX Runtime", self.env_info["onnxruntime"].replace("ONNX Runtime: ", "")),
+            ("ONNX acceleration", self.env_info["inference_acceleration"]),
+            ("ONNX providers", self.env_info["onnxruntime"].replace("ONNX Runtime: ", "")),
+            ("WebP", self.env_info["webp_supported"]),
             ("Output folder", rel(OUTPUTS_DIR)),
         ]
         for index, (label, value) in enumerate(status_items):
@@ -203,6 +231,10 @@ class ForJynWorkbenchApp:
         ttk.Label(generate_box, textvariable=self.progress_status).grid(row=0, column=3, sticky="e")
         self.progress = ttk.Progressbar(generate_box, mode="indeterminate")
         self.progress.grid(row=1, column=0, columnspan=4, sticky="ew", pady=(10, 0))
+        ttk.Label(generate_box, textvariable=self.current_job).grid(row=2, column=0, columnspan=4, sticky="w", pady=(8, 0))
+        ttk.Label(generate_box, textvariable=self.current_stage).grid(row=3, column=0, columnspan=2, sticky="w")
+        ttk.Label(generate_box, textvariable=self.style_progress).grid(row=3, column=2, columnspan=2, sticky="e")
+        ttk.Label(generate_box, textvariable=self.output_status).grid(row=4, column=0, columnspan=4, sticky="w")
 
         log_box = ttk.LabelFrame(frame, text="Log", padding=8)
         log_box.grid(row=7, column=0, sticky="nsew", pady=(8, 0))
@@ -215,8 +247,12 @@ class ForJynWorkbenchApp:
     def _write_initial_log(self):
         self._append_log("ForJyn Workbench ready.\n")
         self._append_log(f"{self.env_info['device']}\n")
+        self._append_log(f"PyTorch CUDA available: {self.env_info['cuda_available']}\n")
         self._append_log(f"{self.env_info['pytorch']}\n")
         self._append_log(f"{self.env_info['onnxruntime']}\n")
+        self._append_log(f"DirectMLExecutionProvider available: {self.env_info['directml_available']}\n")
+        self._append_log(f"Supported image extensions: {', '.join(IMAGE_EXTENSIONS)}\n")
+        self._append_log(f"WebP supported: {self.env_info['webp_supported']}\n")
         for error in self.env_info["errors"]:
             self._append_log(f"Warning: {error}\n")
 
@@ -270,6 +306,45 @@ class ForJynWorkbenchApp:
     def _set_progress_status(self, value):
         self.progress_status.set(value)
 
+    def _stage_label(self, stage):
+        return {
+            "training": "Training",
+            "exporting": "Exporting ONNX",
+            "validating": "Validating",
+            "applying": "Applying",
+            "done": "Done",
+            "failed": "Failed",
+        }.get(stage.strip().lower(), stage.strip())
+
+    def _is_progress_noise(self, line):
+        stripped = line.strip()
+        return bool(PERCENT_LINE_RE.match(stripped) or re.match(r"^\d+(?:\.\d+)?%\|", stripped))
+
+    def _handle_structured_line(self, line):
+        stripped = line.strip()
+        if not stripped.startswith("FORJYN_") or "=" not in stripped:
+            return False
+        key, value = stripped.split("=", 1)
+        key = key.removeprefix("FORJYN_")
+        if key == "STAGE":
+            self.log_queue.put(("status", self._stage_label(value)))
+        elif key == "MESSAGE":
+            self.log_queue.put(("log", value + "\n"))
+        elif key == "JOB_ID":
+            self.current_backend_job_id = value
+            self.log_queue.put(("current_job", value))
+        elif key == "STYLE":
+            self.log_queue.put(("current_job", value))
+        elif key == "OUTPUT_DIR":
+            self.log_queue.put(("output_dir", value))
+        elif key == "ONNX_PATH":
+            self.log_queue.put(("onnx_path", value))
+        elif key == "IMAGE_OUTPUT":
+            self.log_queue.put(("image_output", value))
+        elif key == "PROGRESS":
+            pass
+        return True
+
     def _poll_log_queue(self):
         try:
             while True:
@@ -280,8 +355,20 @@ class ForJynWorkbenchApp:
                     self.last_output_dir = payload
                     self.completed_dirs.append(payload)
                     self.open_output_button.configure(state=NORMAL)
+                    self.output_status.set(f"Output folder: {payload}")
                 elif kind == "status":
                     self._set_progress_status(payload)
+                    self.current_stage.set(f"Current stage: {payload}")
+                elif kind == "current_job":
+                    self.current_job.set(f"Current job: {payload}")
+                elif kind == "style_progress":
+                    self.style_progress.set(payload)
+                elif kind == "runtime_output":
+                    self.output_status.set(f"Output folder: {payload}")
+                elif kind == "onnx_path":
+                    self._append_log(f"ONNX: {payload}\n")
+                elif kind == "image_output":
+                    self._append_log(f"Image output: {payload}\n")
                 elif kind == "done":
                     self.running = False
                     self.progress.stop()
@@ -322,9 +409,14 @@ class ForJynWorkbenchApp:
         self.running = True
         self.completed_dirs = []
         self.last_output_dir = None
+        self.current_backend_job_id = None
         self.progress.configure(mode="indeterminate")
         self.progress.start(12)
         self._set_progress_status("Training")
+        self.current_stage.set("Current stage: Training")
+        self.current_job.set("Current job: starting")
+        self.style_progress.set(f"Style progress: 0 of {len(self.style_paths)}")
+        self.output_status.set(f"Output folder: {rel(OUTPUTS_DIR)}")
         self.open_output_button.configure(state=DISABLED)
         self._set_inputs_state(DISABLED)
         self._update_start_state()
@@ -357,6 +449,7 @@ class ForJynWorkbenchApp:
         all_ok = True
         for index, style_path in enumerate(self.style_paths, start=1):
             style_name = Path(style_path).stem
+            backend_job_id = None
             command = [
                 sys.executable,
                 str(BACKEND),
@@ -374,12 +467,18 @@ class ForJynWorkbenchApp:
                 "--device",
                 "auto",
             ]
-            self.log_queue.put(("log", f"\n[{index}/{len(self.style_paths)}] {Path(style_path).name}\n"))
+            self.log_queue.put(("log", f"\nStarting style {index}/{len(self.style_paths)}: {Path(style_path).name}\n"))
             self.log_queue.put(("status", "Training"))
+            self.log_queue.put(("style_progress", f"Style progress: {index} of {len(self.style_paths)}"))
+            self.log_queue.put(("current_job", Path(style_path).name))
             try:
+                env = os.environ.copy()
+                env["PYTHONIOENCODING"] = "utf-8"
+                env["PYTHONUTF8"] = "1"
                 process = subprocess.Popen(
                     command,
                     cwd=str(ROOT),
+                    env=env,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
@@ -390,6 +489,12 @@ class ForJynWorkbenchApp:
                 assert process.stdout is not None
                 suppress_traceback_frames = False
                 for line in process.stdout:
+                    if line.startswith("FORJYN_JOB_ID="):
+                        backend_job_id = line.split("=", 1)[1].strip()
+                    if self._handle_structured_line(line):
+                        continue
+                    if self._is_progress_noise(line):
+                        continue
                     if line.startswith("Traceback (most recent call last):"):
                         self.log_queue.put(("log", "Backend error traceback omitted. Final error line follows if available.\n"))
                         suppress_traceback_frames = True
@@ -406,6 +511,13 @@ class ForJynWorkbenchApp:
                     all_ok = False
                     self.log_queue.put(("status", "Failed"))
                     self.log_queue.put(("log", f"Job failed with exit code {returncode}.\n"))
+                    checkpoint = TECHNICAL_DIR / "models" / backend_job_id / "checkpoint.pth" if backend_job_id else None
+                    if checkpoint and checkpoint.exists():
+                        self.log_queue.put((
+                            "log",
+                            "Training checkpoint was created, but export/apply failed. "
+                            "You can recover this job without retraining after fixing the issue.\n",
+                        ))
                 else:
                     self.log_queue.put(("log", "Job completed.\n"))
             except Exception as exc:
@@ -433,9 +545,13 @@ def run_check():
     print(f"Tkinter: available")
     print(f"Backend: {'found' if BACKEND.exists() else 'missing'} ({BACKEND})")
     print(f"Workbench: {info['workbench']} ({WORKBENCH})")
-    print(info["device"])
     print(info["pytorch"])
-    print(info["onnxruntime"])
+    print(f"PyTorch CUDA available: {info['cuda_available']}")
+    print(f"Training device: {info['training_device']}")
+    print("ONNX Runtime providers: " + (", ".join(info["providers"]) if info["providers"] else "none"))
+    print(f"DirectMLExecutionProvider available: {info['directml_available']}")
+    print("Supported image extensions: " + ", ".join(IMAGE_EXTENSIONS))
+    print(f"WebP supported: {info['webp_supported']}")
     if info["errors"]:
         for error in info["errors"]:
             print(f"Warning: {error}")
