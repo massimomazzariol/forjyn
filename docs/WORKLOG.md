@@ -1,5 +1,21 @@
 # Worklog
 
+## 2026-06-02
+
+- Archived the experimental modern-core / modern-artistic V2 workflow in local branch `archive/modern-artistic-v2-experimental-workflow`.
+- Reset the active branch back to `2ab5e5b chore: add model factory scaffold` to simplify the project direction.
+- Started the ForJyn GUI Workbench direction:
+  - `ForJyn_Workbench/inputs/`
+  - `ForJyn_Workbench/references/`
+  - `ForJyn_Workbench/outputs/`
+  - `ForJyn_Workbench/technical/`
+- Added `tools/forjyn_workbench.py` with commands for init, scan, train, export, validate, apply, end-to-end local runs, and GUI-friendly `run-job`.
+- Added `tools/forjyn_workbench_gui.py` as a minimal Tkinter GUI for choosing a content photo, choosing one or more style/reference images, selecting quality, starting jobs, viewing logs, and opening output folders.
+- Added `run_forjyn_workbench.bat` as the Windows launcher for the GUI.
+- Added `docs/WORKBENCH.md` as the simple GUI user guide.
+- Updated training support for bounded local Workbench runs: max steps, checkpoint naming, worker count, and device selection.
+- Release packaging is intentionally deferred until the Workbench is stable.
+
 ## 2026-06-01
 
 - Fork created from `yakhyo/fast-neural-style-transfer`.

@@ -2,6 +2,8 @@
 
 This table tracks factory readiness. Model binaries, checkpoints, ONNX exports, validation JSON, and images remain local and untracked.
 
+The active user-facing path is now ForJyn Workbench. Factory entries below are retained as baseline/model-history context, not as a release plan.
+
 | Model | Type | Style Image | Checkpoint | Export | Validation | Notes |
 |---|---|---|---|---|---|---|
 | `candy` | upstream-baseline | `images/style-images/candy.jpg` | `.local/upstream-yakhyo-v1.0/candy.pth` validated locally | dynamic shape-preserving export validated locally | realistic H/W CPU validation passed | Upstream baseline, not Forjyn-owned |

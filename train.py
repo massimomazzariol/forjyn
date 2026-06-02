@@ -18,7 +18,7 @@ def train(device, args):
     torch.manual_seed(0)
 
     train_dataset = datasets.ImageFolder(args.dataset, transform=utils.train_transform(args.image_size))
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=8)
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=args.num_workers)
 
     # Define networks and move to device
     transformer = TransformerNet().to(device)
@@ -38,11 +38,14 @@ def train(device, args):
     features_style = vgg(utils.normalize_batch(style))
     gram_style = [utils.gram_matrix(y) for y in features_style]
 
+    global_step = 0
+    should_stop = False
     for epoch in range(args.epochs):
         transformer.train()
         metrics = {"content_loss": [], "style_loss": [], "total_loss": [], "count": 0}
 
         for i, (images, _) in enumerate(train_loader):
+            global_step += 1
             metrics["count"] += images.size(0)
             optimizer.zero_grad()
 
@@ -86,9 +89,18 @@ def train(device, args):
                 )
                 print(msg)
 
+            if args.max_steps and global_step >= args.max_steps:
+                should_stop = True
+                break
+
+        if should_stop:
+            break
+
     # save model
     transformer.eval().cpu()
-    filename = f"{os.path.splitext(os.path.basename(args.style_image))[0]}.pth"
+    filename = args.save_name or f"{os.path.splitext(os.path.basename(args.style_image))[0]}.pth"
+    if not filename.endswith(".pth"):
+        filename = f"{filename}.pth"
     path = os.path.join(args.save_model, filename)
     torch.save(transformer.state_dict(), path)
 
@@ -108,6 +120,10 @@ def parse_args():
     parser.add_argument("--epochs", type=int, default=1, help="number of training epochs")
     parser.add_argument("--batch-size", type=int, default=4, help="batch size for training")
     parser.add_argument("--image-size", type=int, default=256, help="size of training images")
+    parser.add_argument("--max-steps", type=int, default=0, help="maximum optimizer steps; 0 means run full epochs")
+    parser.add_argument("--num-workers", type=int, default=0, help="DataLoader worker processes")
+    parser.add_argument("--save-name", type=str, default=None, help="checkpoint filename to write inside --save-model")
+    parser.add_argument("--device", type=str, default="auto", choices=["auto", "cpu", "cuda"], help="training device")
     parser.add_argument(
         "--style-size",
         type=int,
@@ -133,7 +149,13 @@ def parse_args():
 
 def main():
     args = parse_args()
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if args.device == "cuda" and not torch.cuda.is_available():
+        print("CUDA requested but unavailable")
+        sys.exit(1)
+    if args.device == "cpu":
+        device = torch.device("cpu")
+    else:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     try:
         os.makedirs(args.save_model, exist_ok=True)
     except OSError as e:

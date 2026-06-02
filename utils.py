@@ -31,10 +31,11 @@ content_transform = style_transform()
 
 def load_image(filename, size=None, scale=None):
     img = Image.open(filename).convert('RGB')
+    resample = Image.Resampling.LANCZOS
     if size is not None:
-        img = img.resize((size, size), Image.ANTIALIAS)
+        img = img.resize((size, size), resample)
     elif scale is not None:
-        img = img.resize((int(img.size[0] / scale), int(img.size[1] / scale)), Image.ANTIALIAS)
+        img = img.resize((int(img.size[0] / scale), int(img.size[1] / scale)), resample)
     return img
 
 

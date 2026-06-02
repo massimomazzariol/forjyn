@@ -1,19 +1,19 @@
 # Project Scope
 
-Forjyn is a fork-based model lab for experimenting with per-style full-frame visual transformation models.
+Forjyn is a local GUI workbench for per-style full-frame visual transformation models.
 
-The first technical goal is a CPU/small smoke test that proves the inherited pipeline can still run in a controlled local setup. Training changes, long training runs, model quality claims, and downstream app integration are out of scope until that baseline is validated.
+The active goal is a simple user-facing workflow: choose a content photo, choose one or more style/reference images, train local PyTorch checkpoints, export dynamic H/W shape-preserving ONNX, and write final transformed images plus model artifacts to an output folder.
 
 ## Model Direction
 
-Forjyn follows a one filter = one model approach. Each style or visual transformation should map to its own trained/exported model instead of a shared runtime preset system.
+Forjyn follows a one filter = one model approach. Each style image maps to its own trained/exported model instead of a shared runtime preset system.
 
 The target is full-frame visual transformation. The intended ONNX contract is:
 
 - input: `1 x 3 x height x width`
 - output: `1 x 3 x height x width`
 
-Height and width should be dynamic once ONNX export is validated.
+Height and width should be dynamic for Workbench exports. Applying a model to a content image should preserve the original content image dimensions.
 
 ## Upstream Baseline Versus Forjyn Target
 
@@ -33,3 +33,15 @@ Forjyn should not treat any of the following as the product solution:
 - upscaling low-resolution output into a final image
 
 These techniques may be useful for tests or diagnostics, but they are not the target product behavior for this project.
+
+## Workbench Scope
+
+The Workbench user-facing folders are:
+
+- `ForJyn_Workbench/inputs/`
+- `ForJyn_Workbench/references/`
+- `ForJyn_Workbench/outputs/`
+
+Technical files stay under `ForJyn_Workbench/technical/` and are not committed.
+
+Release packaging is out of scope until the Workbench is stable.

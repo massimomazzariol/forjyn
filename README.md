@@ -1,8 +1,8 @@
 # Forjyn
 
-Forjyn is a fork-based model experimentation lab for per-style full-frame visual transformation models, especially PyTorch-to-ONNX workflows.
+Forjyn is a local GUI workbench for per-style full-frame visual transformation models, especially PyTorch-to-ONNX workflows.
 
-The project is being repositioned as a clean, public, CV-friendly space for training, exporting, and validating one-filter-one-model visual transformations. The first milestone is to validate a small CPU smoke test and dynamic ONNX export.
+The project is being simplified around a practical workflow: choose a content photo, choose one or more style/reference images, train/export/apply locally, and review the outputs.
 
 ## Fork Origin And Attribution
 
@@ -12,11 +12,11 @@ This fork keeps attribution to the original upstream project while narrowing its
 
 ## What This Project Does
 
-- Provides a lab for per-style visual transformation models.
+- Provides a local workbench for per-style visual transformation models.
 - Treats one filter as one trained/exported model.
 - Uses the inherited PyTorch training and stylization code as the starting point.
 - Targets ONNX export with dynamic full-frame input and output dimensions.
-- Documents model, licensing, and downstream integration policies before adding new training work.
+- Keeps generated checkpoints, ONNX files, images, and outputs local.
 
 Target ONNX shape:
 
@@ -26,16 +26,26 @@ Target ONNX shape:
 ## What It Does Not Do Yet
 
 - Does not claim final model quality.
-- Does not claim verified full-resolution success.
-- Does not implement new training changes yet.
 - Does not use tiling, patch stitching, or low-resolution upscale as the product solution.
 - Does not treat newly generated model weights, datasets, checkpoints, or outputs as source files.
 
 ## Current Status
 
-Forjyn is in project-positioning mode. Documentation, ignore rules, and model artifact policy are being established before any training or export changes.
+Forjyn is now being simplified around ForJyn Workbench: a local GUI flow for choosing photos and style/reference images, training a PyTorch checkpoint, exporting ONNX, and writing final outputs.
 
-The next technical milestone is a CPU-first smoke test followed by dynamic ONNX export validation.
+The workbench still does not claim final model quality without human review.
+
+## ForJyn Workbench
+
+The easiest way on Windows is:
+
+1. Run `run_forjyn_workbench.bat`.
+2. Choose a content photo.
+3. Choose one or more style/reference images.
+4. Press Start.
+5. Copy the generated ONNX from `ForJyn_Workbench/outputs/`.
+
+For details, read [`docs/WORKBENCH.md`](docs/WORKBENCH.md).
 
 ## Setup
 
@@ -49,13 +59,11 @@ Dependencies are intentionally unchanged in this repositioning step. Broad depen
 
 ## Roadmap
 
-1. Run a CPU smoke test with the existing code.
-2. Validate dynamic ONNX export with input `1 x 3 x height x width`.
-3. Validate local ONNX inference on CPU.
-4. Create the first project-owned style reference.
-5. Train the first Forjyn-owned per-style model.
-6. Export and validate the model as ONNX.
-7. Package validated model metadata for downstream consumers.
+1. Stabilize the Workbench GUI flow.
+2. Make training/export/apply understandable for non-technical users.
+3. Validate outputs on user-provided local content/style images.
+4. Improve model quality after human review.
+5. Handle release packaging later, once the workbench is stable.
 
 Forjyn can be used as a model pipeline for downstream projects such as Mixelith, while remaining an independent project.
 
@@ -67,6 +75,7 @@ Every generated model should document its source revision, training data, style 
 
 See:
 
+- [`docs/WORKBENCH.md`](docs/WORKBENCH.md)
 - [`docs/PROJECT_SCOPE.md`](docs/PROJECT_SCOPE.md)
 - [`docs/MODEL_POLICY.md`](docs/MODEL_POLICY.md)
 - [`docs/THIRD_PARTY.md`](docs/THIRD_PARTY.md)

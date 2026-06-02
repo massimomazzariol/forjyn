@@ -4,6 +4,14 @@ New model files are not committed unless explicitly approved for a specific rele
 
 The fork preserves inherited upstream files, including upstream-tracked sample weights. New checkpoints, exports, datasets, and generated outputs should remain local unless their source, license, and release purpose are documented.
 
+## Workbench Artifacts
+
+ForJyn Workbench writes runtime artifacts under `ForJyn_Workbench/`.
+
+Do not commit Workbench checkpoints, ONNX files, `.onnx.data` sidecars, content images, style images, output images, previews, logs, reports, datasets, zip files, or cache files.
+
+Workbench models are local results for review. They are not final-quality claims and should be regenerated only as functionally similar outputs, not byte-for-byte reproductions.
+
 ## Upstream Baseline Weights
 
 Inherited upstream ONNX weights are preserved as baseline/demo artifacts from the fork source. They are acceptable for smoke tests and compatibility checks, but they are not the final Forjyn model target.

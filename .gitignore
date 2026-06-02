@@ -1,6 +1,8 @@
 # Forjyn local context and generated artifacts
 .local/
+ForJyn_Workbench/
 **pycache**/
+**/__pycache__/
 *.pyc
 .venv/
 venv/
@@ -17,6 +19,10 @@ models/
 *.pt
 *.pth.tar
 *.ckpt
+*.onnx.data
+*.zip
+.local/torch-cache/
+.local/cache/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -1,6 +1,8 @@
 # Model Factory
 
-Forjyn's model factory is a local batch workflow for the project rule: one filter = one model.
+Forjyn's model factory is a local technical workflow for the project rule: one filter = one model.
+
+For normal use, prefer the simpler Workbench guide in `docs/WORKBENCH.md`.
 
 The factory keeps source control clean. The tracked repository stores the manifest, scripts, and documentation. Runtime artifacts stay under `.local/` and are not committed.
 
