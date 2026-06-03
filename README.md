@@ -20,17 +20,11 @@ It builds on the fast neural style transfer architecture from `yakhyo/fast-neura
 
 ForJyn is not a finished filter pack. It is an experimental local workbench. Visual review is still required before any model is called useful or release-ready.
 
+The current interface is intentionally minimal: ForJyn is a local technical workbench focused on generating, exporting, validating and reviewing ONNX style-transfer models, not a polished consumer design tool.
+
 ## Screenshots
 
-These interface previews show the intended local workflow. Runtime outputs are generated locally under `workbench/` and are not committed.
-
-### ForJyn Workbench
-
-![ForJyn Workbench interface preview](docs/assets/screenshots/forjyn-workbench.png)
-
-### Procedural Reference Generator
-
-![ForJyn Reference Generator interface preview](docs/assets/screenshots/reference-generator.png)
+Real screenshots will be added after the next UI polish pass.
 
 ## Quick Start On Windows
 
