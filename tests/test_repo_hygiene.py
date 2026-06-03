@@ -46,10 +46,18 @@ class RepoHygieneTests(unittest.TestCase):
             "technical" + "/",
             "_forjyn" + "_runtime",
         ]
-        allowed = {".gitignore"}
+        allowed_by_needle = {
+            "ForJyn" + "_Workbench": {".gitignore"},
+            "forjyn-" + "workbench": {
+                ".gitignore",
+                "README.md",
+                "docs/assets/screenshots/README.md",
+            },
+            "." + "local": {".gitignore"},
+            "technical" + "/": set(),
+            "_forjyn" + "_runtime": set(),
+        }
         for name in git("ls-files"):
-            if name in allowed:
-                continue
             path = ROOT / name
             if not path.is_file():
                 continue
@@ -58,6 +66,8 @@ class RepoHygieneTests(unittest.TestCase):
             except UnicodeDecodeError:
                 continue
             for needle in blocked:
+                if name in allowed_by_needle[needle]:
+                    continue
                 self.assertNotIn(needle, text, f"{needle} found in {name}")
 
 

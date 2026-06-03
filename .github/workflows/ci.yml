@@ -8,7 +8,6 @@ jobs:
   test:
     runs-on: windows-latest
     env:
-      FORJYN_WORKBENCH_ROOT: ${{ runner.temp }}\forjyn-ci-workbench
       PYTHONIOENCODING: utf-8
       PYTHONUTF8: "1"
     steps:
@@ -26,13 +25,21 @@ jobs:
           python -m pip install -r requirements.txt
 
       - name: Compile tools
-        run: python -m py_compile tools/forjyn_workbench.py tools/forjyn_workbench_gui.py tools/forjyn_reference_generator.py tools/forjyn_paths.py
+        shell: pwsh
+        run: |
+          $env:FORJYN_WORKBENCH_ROOT = Join-Path $env:RUNNER_TEMP "ci-workbench"
+          python -m py_compile tools/forjyn_workbench.py tools/forjyn_workbench_gui.py tools/forjyn_reference_generator.py tools/forjyn_paths.py
 
       - name: Unit tests
-        run: python -m unittest discover -s tests
+        shell: pwsh
+        run: |
+          $env:FORJYN_WORKBENCH_ROOT = Join-Path $env:RUNNER_TEMP "ci-workbench"
+          python -m unittest discover -s tests
 
       - name: CLI smoke checks
+        shell: pwsh
         run: |
+          $env:FORJYN_WORKBENCH_ROOT = Join-Path $env:RUNNER_TEMP "ci-workbench"
           python tools/forjyn_workbench.py --help
           python tools/forjyn_reference_generator.py --check
           python tools/forjyn_workbench_gui.py --check

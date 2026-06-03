@@ -22,7 +22,15 @@ ForJyn is not a finished filter pack. It is an experimental local workbench. Vis
 
 ## Screenshots
 
-Screenshots are not committed yet. See [docs/assets/screenshots](docs/assets/screenshots/README.md) for the capture checklist. The repository avoids committing casual runtime screenshots, private images, or unreviewed generated outputs.
+These interface previews show the intended local workflow. Runtime outputs are generated locally under `workbench/` and are not committed.
+
+### ForJyn Workbench
+
+![ForJyn Workbench interface preview](docs/assets/screenshots/forjyn-workbench.png)
+
+### Procedural Reference Generator
+
+![ForJyn Reference Generator interface preview](docs/assets/screenshots/reference-generator.png)
 
 ## Quick Start On Windows
 

@@ -1,6 +1,15 @@
-# ForJyn Screenshot Checklist
+# ForJyn Screenshot And Preview Assets
 
-Screenshots should be captured manually before a public release.
+This folder contains public README-safe interface preview images.
+
+Current files:
+
+- `forjyn-workbench.png`: clean interface preview for the main Workbench.
+- `reference-generator.png`: clean interface preview for the procedural reference generator.
+
+These are interface previews, not proof of a completed training run.
+
+Real screenshots can be captured manually before a future release.
 
 Use only clean demo state:
 
