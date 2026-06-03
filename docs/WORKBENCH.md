@@ -1,0 +1,189 @@
+# ForJyn Workbench
+
+ForJyn Workbench is the main local workflow for style-transfer model experiments. It writes runtime artifacts under `workbench/`, which is ignored by Git and can be recreated after a clean clone.
+
+## Fresh Clone Workflow
+
+```powershell
+git clone <repo-url>
+cd forjyn
+setup_windows.bat
+run_forjyn_workbench.bat
+```
+
+Then in the GUI:
+
+1. Choose a content photo.
+2. Choose one or more style/reference images, or generate procedural references.
+3. Pick Draft, Normal, or Final.
+4. Start.
+5. Review outputs in `workbench/outputs/`.
+
+## Runtime Layout
+
+```text
+workbench/
+  manual-references/
+  final-candidates/
+  generated-references/
+    saved/
+    contact-sheets/
+  outputs/
+  reviews/
+  _runtime/
+    cache/
+    torch/
+    onnx/
+    models/
+    reports/
+    logs/
+```
+
+Normal users should focus on:
+
+- `workbench/manual-references/`
+- `workbench/generated-references/`
+- `workbench/outputs/`
+- `workbench/reviews/`
+
+Technical files live under `workbench/_runtime/`.
+The VGG/Torch cache is stored at `workbench/_runtime/cache/torch/`.
+
+Automated tests and CI may redirect the runtime root with:
+
+```text
+FORJYN_WORKBENCH_ROOT
+```
+
+This is only for isolation. The normal local user runtime remains `workbench/`.
+
+## Content Photo
+
+The content photo is the image ForJyn transforms. It can be selected from any local path. Supported formats are JPG, JPEG, PNG, and WebP when the current Pillow build supports WebP.
+
+## Style And Reference Images
+
+Manual local references can be selected from any folder. The convenience folder is:
+
+```text
+workbench/manual-references/
+```
+
+Manual references are the user's license responsibility.
+
+The procedural generator writes selected references here:
+
+```text
+workbench/generated-references/saved/
+```
+
+Reference contact sheets are written here:
+
+```text
+workbench/generated-references/contact-sheets/
+```
+
+Generator metadata and temporary sessions are technical runtime files under `workbench/_runtime/`.
+
+## Quality Modes
+
+- Draft: fast screening for multiple references.
+- Normal: a stronger candidate pass for promising references.
+- Final: slower training for selected winners.
+
+The mode changes training time and candidate quality. It does not remove the need for human review.
+
+## Outputs
+
+Each completed job writes a folder under:
+
+```text
+workbench/outputs/YYYYMMDD-HHMMSS-style-name/
+```
+
+Typical contents include:
+
+- styled output image
+- exported ONNX model
+- `.onnx.data` sidecar when produced by the exporter
+- validation metadata
+- training/export logs and summaries
+- model card or output notes
+
+Runtime model/checkpoint files are stored under:
+
+```text
+workbench/_runtime/models/
+```
+
+Checkpoints are PyTorch `.pth` files. ONNX files are exported runtime models. `.onnx.data` files are sidecars used by some ONNX exports and must stay next to their ONNX file.
+
+## Review Sheet
+
+`Create review sheet` builds a local comparison sheet from completed outputs. It does not train, export ONNX, or process new content.
+
+Latest review output:
+
+```text
+workbench/reviews/latest-review-sheet.jpg
+```
+
+Use review sheets to decide which references deserve slower Final runs.
+
+## Clean Temporary References
+
+The backend can remove temporary generated-reference sessions:
+
+```powershell
+.\.venv\Scripts\python tools\forjyn_workbench.py cleanup-temp
+```
+
+This keeps saved references, final candidates, contact sheets, outputs, models, reports, reviews, `.venv`, `weights`, and the main `workbench/` structure.
+
+## CPU, GPU, And DirectML
+
+Training uses PyTorch CPU or CUDA, depending on the installed PyTorch build and local hardware. If the GUI reports CPU only, that is not automatically a bug.
+
+DirectML is optional and applies only to ONNX Runtime inference/validation in this workbench. If DirectML is missing, incompatible, or slower on a local machine, ForJyn keeps CPU fallback available. Training remains PyTorch CPU/CUDA.
+
+## WebP
+
+ForJyn accepts WebP only when Pillow reports WebP support in the current environment. If WebP fails, convert the image to JPG or PNG and rerun the job.
+
+## Backend Command
+
+The GUI calls the backend per selected reference. A representative command is:
+
+```powershell
+.\.venv\Scripts\python tools\forjyn_workbench.py run-job --content "C:\path\photo.jpg" --style "C:\path\reference.png" --name "reference" --steps 800 --output-root "workbench\outputs"
+```
+
+The backend prints a final `FORJYN_OUTPUT_DIR=...` line for GUI and script integration.
+
+## Troubleshooting
+
+Training completed but export failed: use `recover-job` with the existing model directory and content image. Recovery exports ONNX from the checkpoint, validates it, and applies it without retraining.
+
+```powershell
+.\.venv\Scripts\python tools\forjyn_workbench.py recover-job --model-dir "workbench\_runtime\models\YYYYMMDD-HHMMSS-style-name" --content "C:\path\content.jpg" --output-dir "workbench\outputs\YYYYMMDD-HHMMSS-style-name"
+```
+
+CPU only: install a CUDA-capable PyTorch build if you expect GPU training and your machine supports it. DirectML availability does not accelerate PyTorch training here.
+
+WebP unsupported: convert the file to JPG or PNG.
+
+Checkpoint recovery: keep the local `workbench/_runtime/models/...` folder until you know the output folder is complete and usable.
+
+## Reproducibility Note
+
+ForJyn does not guarantee byte-identical ONNX reproduction. Procedural seeds and metadata make generated references traceable, but training can vary across machines, dependency versions, devices, and PyTorch builds. The intended guarantee is functional reproducibility of the workflow: setup, GUI launch, reference generation/selection, train/export, apply, and review.
+
+## Local Tests
+
+Run the lightweight local checks with:
+
+```powershell
+scripts\run_tests.bat
+```
+
+The tests use temporary runtime folders, do not train, and do not generate ONNX.

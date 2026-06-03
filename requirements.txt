@@ -1,9 +1,10 @@
-pillow
-opencv-python
-tqdm
-torch
-torchvision
-numpy
-onnxruntime
+torch==2.12.0
+torchvision==0.27.0
+numpy==2.4.6
+pillow==12.2.0
+onnx==1.21.0
+onnxscript==0.7.0
+onnxruntime==1.26.0
+onnxruntime-directml==1.24.4
 
 flask

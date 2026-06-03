@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    env:
+      FORJYN_WORKBENCH_ROOT: ${{ runner.temp }}\forjyn-ci-workbench
+      PYTHONIOENCODING: utf-8
+      PYTHONUTF8: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Compile tools
+        run: python -m py_compile tools/forjyn_workbench.py tools/forjyn_workbench_gui.py tools/forjyn_reference_generator.py tools/forjyn_paths.py
+
+      - name: Unit tests
+        run: python -m unittest discover -s tests
+
+      - name: CLI smoke checks
+        run: |
+          python tools/forjyn_workbench.py --help
+          python tools/forjyn_reference_generator.py --check
+          python tools/forjyn_workbench_gui.py --check

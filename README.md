@@ -1,185 +1,112 @@
-# Fast-Neural-Style 🚀
+# ForJyn
 
-![Downloads](https://img.shields.io/github/downloads/yakhyo/fast-neural-style-transfer/total)
-[![GitHub Repo stars](https://img.shields.io/github/stars/yakhyo/fast-neural-style-transfer)](https://github.com/yakhyo/fast-neural-style-transfer/stargazers)
-[![GitHub Repository](https://img.shields.io/badge/GitHub-Repository-blue?logo=github)](https://github.com/yakhyo/fast-neural-style-transfer)
+[![CI](https://github.com/massimomazzariol/forjyn/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/massimomazzariol/forjyn/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.11-blue)
+![Windows](https://img.shields.io/badge/windows-local%20workbench-0078D4)
+![ONNX](https://img.shields.io/badge/ONNX-dynamic%20H%2FW-005CED)
 
-The model uses the method described in [Perceptual Losses for Real-Time Style Transfer and Super-Resolution](https://arxiv.org/abs/1603.08155) along with [Instance Normalization](https://arxiv.org/pdf/1607.08022.pdf).
+ForJyn is a local Windows/Python workbench for creating, exporting, and testing ONNX style-transfer models from manual or procedurally generated reference images.
 
-## Table of Contents
+It builds on the fast neural style transfer architecture from `yakhyo/fast-neural-style-transfer`, which follows *Perceptual Losses for Real-Time Style Transfer and Super-Resolution* and instance normalization. ForJyn adds a local GUI workflow, procedural reference generation, dynamic H/W ONNX export, review outputs, and stricter artifact hygiene.
 
-* [Project Description](#project-description)
-* [Installation](#installation)
-* [Usage](#usage)
-* [Contributing](#contributing)
-* [License](#license)
+## What ForJyn Does
 
-## Project Description
+- Choose a content photo from any local path.
+- Choose manual style/reference images or generate procedural references locally.
+- Train one PyTorch style-transfer model per selected reference.
+- Export dynamic height/width, shape-preserving ONNX.
+- Validate and apply ONNX locally with CPU fallback and optional DirectML inference.
+- Create review sheets for human screening.
 
-<div align='center'>
+ForJyn is not a finished filter pack. It is an experimental local workbench. Visual review is still required before any model is called useful or release-ready.
 
-<p>Style Images</p>
-    <img src='images/style-images/mosaic.jpg' height="200px">
-    <img src='images/style-images/candy.jpg' height="200px">
-    <img src='images/style-images/rain-princess.jpg' height="200px">
-    <img src='images/style-images/udnie.jpg' height="200px">
+## Screenshots
 
-<p>Content Image</p>
-    <img src='images/content-images/amber.jpg' height="500px">
+Screenshots are not committed yet. See [docs/assets/screenshots](docs/assets/screenshots/README.md) for the capture checklist. The repository avoids committing casual runtime screenshots, private images, or unreviewed generated outputs.
 
-<p>Output Images</p>
-    <img src="images/output-images/mosaic.jpg" height="200px">
-    <img src="images/output-images/candy.jpg" height="200px">
-    <img src="images/output-images/rain-princess.jpg" height="200px">
-    <img src="images/output-images/udnie.jpg" height="200px">
-</div>
+## Quick Start On Windows
 
-## Installation
-
-```commandline
-git clone https://github.com/yakhyo/fast-neural-style-transfer.git
-cd fast-neural-style-transfer
+```powershell
+git clone https://github.com/massimomazzariol/forjyn.git
+cd forjyn
+setup_windows.bat
+run_forjyn_workbench.bat
 ```
 
-Create a new environment
+`setup_windows.bat` creates `.venv/` and installs `requirements.txt`. It does not train models, export ONNX, or generate images.
 
-```commandline
-conda create --name style_transfer python=3.10
-conda activate style_transfer
+## Basic Workflow
+
+1. Choose a content photo.
+2. Choose manual reference images or generate procedural references.
+3. Pick Draft, Normal, or Final quality.
+4. Start the job.
+5. Review outputs in `workbench/outputs/`.
+
+Use Draft for screening, Normal for promising candidates, and Final only after a reference is worth the time.
+
+## Runtime Folders
+
+`workbench/` is the only active local runtime root and is ignored by Git.
+
+```text
+workbench/
+  manual-references/
+  final-candidates/
+  generated-references/
+    saved/
+    contact-sheets/
+  outputs/
+  reviews/
+  _runtime/
+    cache/
+    torch/
+    onnx/
+    models/
+    reports/
+    logs/
 ```
 
-Install dependencies
+Normal users work mainly in `manual-references/`, `generated-references/`, `outputs/`, and `reviews/`. Technical files, caches, checkpoints, ONNX exports, logs, and validation reports live under `workbench/_runtime/`.
 
-```commandline
-pip install -r requirements.txt
+For tests and CI, the runtime root can be redirected with `FORJYN_WORKBENCH_ROOT`.
+
+## Testing
+
+```powershell
+scripts\run_tests.bat
 ```
 
-**Note**: ONNX model weights are provided inside `weights` folder. To download PyTorch model weights please check
-`Release`.
+The local test script runs unit tests and compiles the main tools. CI runs on Windows and does not train models, generate ONNX, process content images, or upload artifacts.
 
-Style transfer model deployed using Flask, please see `deploy` folder for further.
+## Reproducibility
 
-## Usage
+ForJyn targets functional reproducibility: clone, set up, run the GUI, generate or choose references, train/export ONNX, and review outputs.
 
-Model trained using MSCOCO 2017 Training dataset.
+It does not promise byte-identical ONNX reproduction. Training output can vary by hardware, PyTorch build, dependency versions, random seeds, and runtime provider. Procedural references record seeds and metadata so candidate sources remain traceable.
 
-Dataset folder structure
+## Model And Artifact Policy
 
-```
-train2017-|
-          |-images-|0001.jpg
-                   |0002.jpg
-                   |xxxx.jpg
-```
+Generated checkpoints, ONNX files, `.onnx.data` sidecars, output images, review sheets, contact sheets, caches, copied references, local reports, and the whole `workbench/` runtime are not committed.
 
-Training script
+The inherited upstream ONNX weights in `weights/` stay tracked as baseline/demo files. Future selected ForJyn models should be distributed as release assets with model cards, attribution, validation results, and known limitations, not written into Git history.
 
-```commandline
-python train.py --dataset path/to/dataset(e.g dataset/train2017) --style-image path/to/style/image --save-model 
-path/to/save/model --epochs 5
-```
+## Third-Party And Upstream Credits
 
-Usage of `train.py`
+- Upstream project: [`yakhyo/fast-neural-style-transfer`](https://github.com/yakhyo/fast-neural-style-transfer)
+- Upstream method: perceptual losses for real-time style transfer and super-resolution, plus instance normalization.
+- Core libraries: PyTorch, torchvision, ONNX, ONNX Runtime, Pillow, NumPy.
+- Optional Windows inference acceleration: ONNX Runtime DirectML, with CPU fallback.
+- Training loss path may use VGG16 pretrained weights through torchvision.
 
-```
-usage: train.py [-h] --dataset DATASET [--style-image STYLE_IMAGE] [--epochs EPOCHS] [--batch-size BATCH_SIZE] [--image-size IMAGE_SIZE] [--style-size STYLE_SIZE] --save-model SAVE_MODEL [--content-weight CONTENT_WEIGHT]
-                [--style-weight STYLE_WEIGHT] [--lr LR] [--log-interval LOG_INTERVAL]
+The upstream README states MIT licensing for the original project. See [docs/THIRD_PARTY.md](docs/THIRD_PARTY.md) for attribution, dependency notes, and current license boundaries.
 
-Training parser for fast-neural-style
+Do not train or publish models from unclear third-party assets, commercial app presets, copied UI assets, proprietary model files, or references whose provenance is not documented.
 
-optional arguments:
-  -h, --help            show this help message and exit
-  --dataset DATASET     path to training dataset
-  --style-image STYLE_IMAGE
-                        path to style-image
-  --epochs EPOCHS       number of training epochs
-  --batch-size BATCH_SIZE
-                        batch size for training
-  --image-size IMAGE_SIZE
-                        size of training images
-  --style-size STYLE_SIZE
-                        size of style-image, default is the original size of style image
-  --save-model SAVE_MODEL
-                        folder to save model weights
-  --content-weight CONTENT_WEIGHT
-                        weight for content-loss
-  --style-weight STYLE_WEIGHT
-                        weight for style-loss
-  --lr LR               learning rate
-  --log-interval LOG_INTERVAL
-                        number of images after which the training loss is logged
-```
+## Documentation
 
-Usage of `stylize.py`
-
-```
-usage: stylize.py [-h] --content-image CONTENT_IMAGE [--content-scale CONTENT_SCALE] --output-image OUTPUT_IMAGE --model MODEL [--export-onnx EXPORT_ONNX]
-Training parser for fast-neural-style
-
-optional arguments:
-  -h, --help            show this help message and exit
-  --dataset DATASET     path to training dataset
-  --style-image STYLE_IMAGE
-                        path to style-image
-  --epochs EPOCHS       number of training epochs
-  --batch-size BATCH_SIZE
-                        batch size for training
-  --image-size IMAGE_SIZE
-  --content-scale CONTENT_SCALE
-                        factor for scaling down the content image
-  --output-image OUTPUT_IMAGE
-                        path for saving the output image
-  --model MODEL         saved model to be used for stylizing the image
-  --export-onnx EXPORT_ONNX
-                        export ONNX model to a given file
-```
-
-Export PyTorch model to ONNX format
-
-```
-python stylize.py --model path/to/pytorch/model --content-image path/to/image --export-onnx path/to/save/onnx/model
-```
-
-Inference using PyTorch model
-
-```
-python stylize.py --model path/to/pytorch/model --content-image path/to/image --output-image path/to/save/result/image
-```
-
-Inference using ONNX model
-
-```
-python stylize.py --model path/to/onnx/model --content-image path/to/image --output-image path/to/save/result/image
-```
-
-Model deployment using Flask
-
-```
-cd deploy
-python app.py
-```
-
-Usage of `app.py`
-
-```
-usage: app.py [-h] [--port PORT] [--model MODEL]
-
-Deployment Arguments
-
-optional arguments:
-  -h, --help     show this help message and exit
-  --port PORT    Port number to run the server on
-  --model MODEL  Model name 'candy', 'mosaic', 'rain-princess', 'udnie'
-```
-
-<div align="center">
-    <img src="deploy/web_ui.png">
-</div>
-
-## Contributing
-
-If you find any issues within this code, feel free to create PR or issue.
-
-## License
-
-The project is licensed under the [MIT license](https://opensource.org/license/mit/).
+- [Workbench guide](docs/WORKBENCH.md)
+- [Project scope](docs/PROJECT_SCOPE.md)
+- [Model policy](docs/MODEL_POLICY.md)
+- [Third-party notes](docs/THIRD_PARTY.md)
+- [Worklog](docs/WORKLOG.md)
