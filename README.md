@@ -24,15 +24,21 @@ The current interface is intentionally minimal: ForJyn is a local technical work
 
 ## Screenshots
 
-Real screenshots will be added after the next UI polish pass.
+### ForJyn Workbench
+
+![ForJyn Workbench](docs/assets/screenshots/forjyn-workbench.png)
+
+### Procedural Reference Generator
+
+![ForJyn Reference Generator](docs/assets/screenshots/reference-generator.png)
 
 ## Quick Start On Windows
 
 ```powershell
 git clone https://github.com/massimomazzariol/forjyn.git
 cd forjyn
-setup_windows.bat
-run_forjyn_workbench.bat
+.\setup_windows.bat
+.\run_forjyn_workbench.bat
 ```
 
 `setup_windows.bat` creates `.venv/` and installs `requirements.txt`. It does not train models, export ONNX, or generate images.
@@ -76,7 +82,7 @@ For tests and CI, the runtime root can be redirected with `FORJYN_WORKBENCH_ROOT
 ## Testing
 
 ```powershell
-scripts\run_tests.bat
+.\scripts\run_tests.bat
 ```
 
 The local test script runs unit tests and compiles the main tools. CI runs on Windows and does not train models, generate ONNX, process content images, or upload artifacts.
@@ -102,6 +108,8 @@ The inherited upstream ONNX weights in `weights/` stay tracked as baseline/demo 
 - Training loss path may use VGG16 pretrained weights through torchvision.
 
 The upstream README states MIT licensing for the original project. See [docs/THIRD_PARTY.md](docs/THIRD_PARTY.md) for attribution, dependency notes, and current license boundaries.
+
+This repository currently has no local `LICENSE` file. License and third-party attribution should be reviewed before wider redistribution.
 
 Do not train or publish models from unclear third-party assets, commercial app presets, copied UI assets, proprietary model files, or references whose provenance is not documented.
 

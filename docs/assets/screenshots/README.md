@@ -1,8 +1,11 @@
 # ForJyn Screenshot Assets
 
-No real screenshots are committed yet.
+This folder contains real screenshots of the current minimal Tkinter/Windows ForJyn interface.
 
-Real screenshots will be added after the next UI polish pass.
+Current files:
+
+- `forjyn-workbench.png`
+- `reference-generator.png`
 
 Use only clean demo state:
 

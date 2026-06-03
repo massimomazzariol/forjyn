@@ -55,6 +55,8 @@ Environment packages are not project artifacts.
 
 ## License Boundaries
 
+This repository currently has no local `LICENSE` file. The upstream README states MIT licensing for the original project, but broader redistribution of this fork should review license text, package licenses, model artifact terms, style/reference image provenance, and attribution before release.
+
 Package licenses and model/dataset licenses should be checked before public release. If a license or asset provenance is not verified, document it as `not verified` and do not publish the resulting model as release-ready.
 
 Do not use proprietary competitor models, app assets, extracted presets, copied UI assets, unclear datasets, or unclear manual references for training or public model distribution.
