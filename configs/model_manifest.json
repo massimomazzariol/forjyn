@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "project": "Forjyn",
-  "local_root": ".local/model-factory",
+  "local_root": "workbench/_runtime/models/model-factory",
   "validation_shapes_nchw": [
     [1, 3, 1090, 1280],
     [1, 3, 1080, 1920],
@@ -18,13 +18,13 @@
       "style_provenance": "Inherited upstream demo style image from yakhyo/fast-neural-style-transfer; baseline use only.",
       "style_license": "Upstream README states MIT for the project; individual asset license should be treated as upstream baseline until clarified.",
       "checkpoint": {
-        "local_path": ".local/upstream-yakhyo-v1.0/candy.pth",
+        "local_path": "workbench/_runtime/models/upstream-yakhyo-v1.0/candy.pth",
         "source": "https://github.com/yakhyo/fast-neural-style-transfer/releases/download/v1.0/candy.pth",
         "sha256": "D458C378A796C7F2B332050995AD1B2D27DD5D73AC3C015C79E4C45D773AF282",
         "tracked": false
       },
       "export": {
-        "local_path": ".local/model-factory/candy/export/forjyn-candy.dynamic-shape-preserving.onnx",
+        "local_path": "workbench/_runtime/onnx/model-factory/candy/forjyn-candy.dynamic-shape-preserving.onnx",
         "opset": 18,
         "tracked": false
       },
@@ -42,13 +42,13 @@
       "style_provenance": "Inherited upstream demo style image from yakhyo/fast-neural-style-transfer; baseline use only.",
       "style_license": "Upstream README states MIT for the project; individual asset license should be treated as upstream baseline until clarified.",
       "checkpoint": {
-        "local_path": ".local/upstream-yakhyo-v1.0/mosaic.pth",
+        "local_path": "workbench/_runtime/models/upstream-yakhyo-v1.0/mosaic.pth",
         "source": "https://github.com/yakhyo/fast-neural-style-transfer/releases/download/v1.0/mosaic.pth",
         "sha256": null,
         "tracked": false
       },
       "export": {
-        "local_path": ".local/model-factory/mosaic/export/forjyn-mosaic.dynamic-shape-preserving.onnx",
+        "local_path": "workbench/_runtime/onnx/model-factory/mosaic/forjyn-mosaic.dynamic-shape-preserving.onnx",
         "opset": 18,
         "tracked": false
       },
@@ -66,13 +66,13 @@
       "style_provenance": "Inherited upstream demo style image from yakhyo/fast-neural-style-transfer; baseline use only.",
       "style_license": "Upstream README states MIT for the project; individual asset license should be treated as upstream baseline until clarified.",
       "checkpoint": {
-        "local_path": ".local/upstream-yakhyo-v1.0/rain-princess.pth",
+        "local_path": "workbench/_runtime/models/upstream-yakhyo-v1.0/rain-princess.pth",
         "source": "https://github.com/yakhyo/fast-neural-style-transfer/releases/download/v1.0/rain-princess.pth",
         "sha256": null,
         "tracked": false
       },
       "export": {
-        "local_path": ".local/model-factory/rain-princess/export/forjyn-rain-princess.dynamic-shape-preserving.onnx",
+        "local_path": "workbench/_runtime/onnx/model-factory/rain-princess/forjyn-rain-princess.dynamic-shape-preserving.onnx",
         "opset": 18,
         "tracked": false
       },
@@ -90,13 +90,13 @@
       "style_provenance": "Inherited upstream demo style image from yakhyo/fast-neural-style-transfer; baseline use only.",
       "style_license": "Upstream README states MIT for the project; individual asset license should be treated as upstream baseline until clarified.",
       "checkpoint": {
-        "local_path": ".local/upstream-yakhyo-v1.0/udnie.pth",
+        "local_path": "workbench/_runtime/models/upstream-yakhyo-v1.0/udnie.pth",
         "source": "https://github.com/yakhyo/fast-neural-style-transfer/releases/download/v1.0/udnie.pth",
         "sha256": null,
         "tracked": false
       },
       "export": {
-        "local_path": ".local/model-factory/udnie/export/forjyn-udnie.dynamic-shape-preserving.onnx",
+        "local_path": "workbench/_runtime/onnx/model-factory/udnie/forjyn-udnie.dynamic-shape-preserving.onnx",
         "opset": 18,
         "tracked": false
       },

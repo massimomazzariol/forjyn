@@ -9,6 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MANIFEST = ROOT / "configs" / "model_manifest.json"
+DEFAULT_LOCAL_ROOT = "workbench/_runtime/models/model-factory"
 
 
 def load_manifest(path):
@@ -21,7 +22,7 @@ def repo_path(path):
 
 
 def local_model_dir(manifest, model_id):
-    return repo_path(manifest.get("local_root", ".local/model-factory")) / model_id
+    return repo_path(manifest.get("local_root", DEFAULT_LOCAL_ROOT)) / model_id
 
 
 def write_json(path, payload):
@@ -297,7 +298,7 @@ def build_parser():
     status = subparsers.add_parser("status", help="Print model status table")
     status.set_defaults(func=cmd_status)
 
-    train = subparsers.add_parser("train", help="Train one model into .local")
+    train = subparsers.add_parser("train", help="Train one model into workbench/_runtime/models")
     train.add_argument("model_id")
     train.add_argument("--dataset", required=True)
     train.add_argument("--epochs", type=int, default=1)

@@ -12,9 +12,11 @@ Do not commit:
 - output images, previews, review sheets, or contact sheets
 - local datasets or copied reference images
 - logs, caches, zip files, and local reports
-- anything under `ForJyn_Workbench/`, `.local/`, or `.venv/`
+- anything under `workbench/`, `.venv/`, or legacy local runtime folders
 
 The inherited upstream `weights/*.onnx` files remain tracked as upstream baseline/demo files. Do not remove or replace them as part of normal Workbench runs.
+
+`workbench/` is the only active local runtime root. Legacy local runtime folders remain ignored only for cleanup compatibility and should not be recreated by active workflows.
 
 ## Upstream Baselines
 

@@ -16,6 +16,7 @@
 - 2026-06-02: Review sheet workflow added for screening completed outputs.
 - 2026-06-02: GUI screening workflow refined around Draft, Normal, and Final candidate passes.
 - 2026-06-03: Local artifact cleanup and documentation simplification performed for the active Workbench branch.
+- 2026-06-03: Runtime path standardized to ignored `workbench/` with technical files under `_runtime/`.
 
 ## Current Next Step
 

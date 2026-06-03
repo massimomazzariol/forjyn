@@ -16,19 +16,34 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageOps, features
 
+from forjyn_paths import (
+    CONTACT_SHEETS_DIR,
+    FINAL_CANDIDATES_DIR,
+    MANUAL_REFERENCES_DIR,
+    OUTPUTS_DIR,
+    REVIEWS_DIR,
+    RUNTIME_CACHE_DIR,
+    RUNTIME_DIR,
+    RUNTIME_LOGS_DIR,
+    RUNTIME_MODELS_DIR,
+    RUNTIME_REPORTS_DIR,
+    ROOT,
+    SAVED_REFERENCES_DIR,
+    TEMP_REFERENCES_DIR,
+    TORCH_CACHE_DIR,
+    WORKBENCH,
+    ensure_workbench_dirs,
+)
 
-ROOT = Path(__file__).resolve().parents[1]
-WORKBENCH = ROOT / "ForJyn_Workbench"
-CONTENT_DIR = WORKBENCH / "inputs"
-STYLE_DIR = WORKBENCH / "references"
-OUTPUT_DIR = WORKBENCH / "outputs"
-REVIEWS_DIR = WORKBENCH / "reviews"
-TECHNICAL_DIR = WORKBENCH / "technical"
-MODELS_DIR = TECHNICAL_DIR / "models"
-REPORTS_DIR = TECHNICAL_DIR / "reports"
-CACHE_DIR = TECHNICAL_DIR / "cache"
-LOGS_DIR = TECHNICAL_DIR / "logs"
-PREVIEWS_DIR = TECHNICAL_DIR / "previews"
+CONTENT_DIR = MANUAL_REFERENCES_DIR
+STYLE_DIR = MANUAL_REFERENCES_DIR
+OUTPUT_DIR = OUTPUTS_DIR
+RUNTIME_PATH = RUNTIME_DIR
+MODELS_DIR = RUNTIME_MODELS_DIR
+REPORTS_DIR = RUNTIME_REPORTS_DIR
+CACHE_DIR = RUNTIME_CACHE_DIR
+LOGS_DIR = RUNTIME_LOGS_DIR
+PREVIEWS_DIR = REVIEWS_DIR
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 VALIDATION_SHAPES = [
@@ -41,8 +56,7 @@ ORT_PROVIDER_CHOICES = ["auto", "cpu", "directml"]
 DIRECTML_PROVIDER_NAMES = ["DmlExecutionProvider", "DirectMLExecutionProvider"]
 
 GUIDES = {
-    CONTENT_DIR / "PUT_OPTIONAL_CONTENT_PHOTOS_HERE.txt": "Optional: put photos you want to transform in this folder.\nThe GUI can also choose photos from any local path.\nSupported formats: jpg, jpeg, png, webp.\n",
-    STYLE_DIR / "PUT_OPTIONAL_STYLE_REFERENCES_HERE.txt": "Optional: put style/reference images in this folder.\nThe GUI can also choose style images from any local path.\n",
+    MANUAL_REFERENCES_DIR / "PUT_LOCAL_PHOTOS_AND_REFERENCES_HERE.txt": "Optional: put content photos or manual style/reference images in this folder.\nThe GUI can also choose images from any local path.\nSupported formats: jpg, jpeg, png, webp.\n",
     OUTPUT_DIR / "RESULTS_WILL_APPEAR_HERE.txt": "ForJyn writes final user-facing job outputs here.\n",
 }
 
@@ -104,8 +118,7 @@ def read_json(path):
 
 
 def ensure_dirs():
-    for path in [CONTENT_DIR, STYLE_DIR, OUTPUT_DIR, REVIEWS_DIR, TECHNICAL_DIR, MODELS_DIR, REPORTS_DIR, CACHE_DIR, LOGS_DIR, PREVIEWS_DIR]:
-        path.mkdir(parents=True, exist_ok=True)
+    ensure_workbench_dirs()
 
 
 def image_paths(path):
@@ -199,9 +212,9 @@ def local_env():
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONUTF8"] = "1"
-    env["TORCH_HOME"] = str(CACHE_DIR / "torch")
+    env["TORCH_HOME"] = str(TORCH_CACHE_DIR)
     env["XDG_CACHE_HOME"] = str(CACHE_DIR / "xdg")
-    (CACHE_DIR / "torch").mkdir(parents=True, exist_ok=True)
+    TORCH_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     (CACHE_DIR / "xdg").mkdir(parents=True, exist_ok=True)
     return env
 
@@ -229,7 +242,7 @@ def cmd_init(_args):
         "content_images": rel(CONTENT_DIR),
         "style_images": rel(STYLE_DIR),
         "outputs": rel(OUTPUT_DIR),
-        "technical": rel(TECHNICAL_DIR),
+        "runtime": rel(RUNTIME_DIR),
     }
     print(json.dumps(payload, indent=2, sort_keys=True))
 
@@ -249,9 +262,9 @@ def scan_payload():
     ]
     problems = []
     if not content:
-        problems.append("No content images found in ForJyn_Workbench/inputs.")
+        problems.append("No local images found in workbench/manual-references.")
     if not styles:
-        problems.append("No style images found in ForJyn_Workbench/references.")
+        problems.append("No style/reference images found in workbench/manual-references.")
     if content and len(content) < 8:
         problems.append("Very few content images found; training will be a pilot, not a final-quality model.")
     return {
@@ -327,7 +340,7 @@ def prepare_training_dataset(model_id, allow_synthetic_fallback, content_sources
         generate_synthetic_dataset(class_dir)
     else:
         raise SystemExit(
-            "No content images found. Add photos to ForJyn_Workbench/inputs/ "
+            "No content images found. Choose a content photo in the GUI or add local images to workbench/manual-references/ "
             "or pass --allow-synthetic-fallback for a pilot-only synthetic test."
         )
     count = len(image_paths(class_dir))
@@ -752,7 +765,7 @@ def write_job_outputs(trained, content, job_dir, style_slug, style_name=None, or
         "job_id": trained.name,
         "content": rel(content),
         "output_dir": rel(job_dir),
-        "technical_model_dir": rel(trained),
+        "runtime_model_dir": rel(trained),
         "onnx": rel(final_onnx) if final_onnx else None,
         "sidecar": rel(final_sidecar) if final_sidecar else None,
         "apply_result": apply_result,
@@ -848,7 +861,7 @@ def create_review_sheet(args):
 
 def cleanup_temp(args):
     ensure_dirs()
-    target = WORKBENCH / "generated_references" / "temp"
+    target = TEMP_REFERENCES_DIR
     resolved_target = target.resolve()
     resolved_workbench = WORKBENCH.resolve()
     if resolved_target == resolved_workbench or resolved_workbench not in resolved_target.parents:
@@ -867,13 +880,14 @@ def cleanup_temp(args):
         "files_removed": file_count,
         "bytes_removed": byte_count,
         "kept": [
-            "ForJyn_Workbench/generated_references/starter_pack/",
-            "ForJyn_Workbench/generated_references/saved/",
-            "ForJyn_Workbench/generated_references/contact_sheets/",
-            "ForJyn_Workbench/outputs/",
-            "ForJyn_Workbench/technical/models/",
-            "ForJyn_Workbench/technical/reports/",
-            "ForJyn_Workbench/reviews/",
+            "workbench/manual-references/",
+            "workbench/final-candidates/",
+            "workbench/generated-references/saved/",
+            "workbench/generated-references/contact-sheets/",
+            "workbench/outputs/",
+            "workbench/_runtime/models/",
+            "workbench/_runtime/reports/",
+            "workbench/reviews/",
         ],
     }
     print(json.dumps(payload, indent=2, sort_keys=True))

@@ -1,6 +1,8 @@
 # Forjyn local context and generated artifacts
+workbench/
 .local/
 ForJyn_Workbench/
+forjyn-workbench/
 **pycache**/
 **/__pycache__/
 *.pyc

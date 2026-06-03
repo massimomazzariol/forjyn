@@ -11,15 +11,22 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter, ImageOps
 
+from forjyn_paths import (
+    CONTACT_SHEETS_DIR,
+    GENERATED_REFERENCES_DIR,
+    REFERENCE_METADATA_DIR,
+    REFERENCE_REVIEW_DIR,
+    SAVED_REFERENCES_DIR,
+    STARTER_PACK_DIR,
+    TEMP_REFERENCES_DIR,
+)
 
-ROOT = Path(__file__).resolve().parents[1]
-REFERENCE_ROOT = ROOT / "ForJyn_Workbench" / "generated_references"
-TEMP_DIR = REFERENCE_ROOT / "temp"
-SAVED_DIR = REFERENCE_ROOT / "saved"
-METADATA_DIR = REFERENCE_ROOT / "metadata"
-CONTACT_SHEET_DIR = REFERENCE_ROOT / "contact_sheets"
-REVIEW_DIR = REFERENCE_ROOT / "review"
-STARTER_PACK_DIR = REFERENCE_ROOT / "starter_pack"
+REFERENCE_ROOT = GENERATED_REFERENCES_DIR
+TEMP_DIR = TEMP_REFERENCES_DIR
+SAVED_DIR = SAVED_REFERENCES_DIR
+METADATA_DIR = REFERENCE_METADATA_DIR
+CONTACT_SHEET_DIR = CONTACT_SHEETS_DIR
+REVIEW_DIR = REFERENCE_REVIEW_DIR
 
 DEFAULTS = {
     "count": 5,

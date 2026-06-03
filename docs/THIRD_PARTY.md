@@ -22,10 +22,10 @@ These are upstream baseline/demo artifacts. They are not ForJyn-owned generated 
 
 ## Local Upstream Checkpoints
 
-The upstream `v1.0` release provides PyTorch checkpoints. ForJyn previously validated `candy.pth` locally as a technical baseline, but that file belongs under `.local/` and must not be committed.
+The upstream `v1.0` release provides PyTorch checkpoints. ForJyn previously validated `candy.pth` locally as a technical baseline. Any future local checkpoint copy belongs under `workbench/_runtime/models/` and must not be committed.
 
 - Release: `https://github.com/yakhyo/fast-neural-style-transfer/releases/tag/v1.0`
-- Validated local file: `.local/upstream-yakhyo-v1.0/candy.pth`
+- Validated local path convention: `workbench/_runtime/models/upstream-yakhyo-v1.0/candy.pth`
 - SHA256 recorded during local validation: `D458C378A796C7F2B332050995AD1B2D27DD5D73AC3C015C79E4C45D773AF282`
 - Status: upstream baseline, not ForJyn-owned
 
@@ -36,7 +36,7 @@ Do not download or use additional upstream checkpoints without an explicit valid
 Core dependencies from `requirements.txt`:
 
 - PyTorch and torchvision for training, model code, and VGG16 feature loss.
-- ONNX Runtime for ONNX validation and inference.
+- ONNX, ONNX Script, and ONNX Runtime for export, validation, and inference.
 - Pillow for image IO and WebP capability checks.
 - NumPy for tensor/image handling.
 - OpenCV Python and tqdm from the inherited workflow.
@@ -44,11 +44,11 @@ Core dependencies from `requirements.txt`:
 
 VGG16 pretrained weights are used by the training loss path through torchvision. The local cache for those weights should remain local and untracked.
 
-## Optional Local Packages
+## DirectML
 
-`onnx` and `onnxscript` may be installed in `.venv/` for modern PyTorch ONNX export. `onnxruntime-directml` may be installed locally for optional DirectML ONNX inference on compatible Windows machines.
+`onnxruntime-directml` is included in the Windows setup so ONNX inference can use DirectML when the local machine supports it. ForJyn keeps CPU fallback enabled. DirectML does not accelerate PyTorch training in this project.
 
-These optional packages are environment details, not project artifacts.
+Environment packages are not project artifacts.
 
 ## License Boundaries
 

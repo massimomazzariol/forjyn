@@ -26,15 +26,20 @@ from forjyn_reference_generator import (
     generate_references,
     save_reference,
 )
+from forjyn_paths import (
+    MANUAL_REFERENCES_DIR,
+    OUTPUTS_DIR,
+    REVIEWS_DIR,
+    RUNTIME_DIR,
+    RUNTIME_MODELS_DIR,
+    ROOT,
+    WORKBENCH,
+    ensure_workbench_dirs as ensure_runtime_dirs,
+)
 
-
-ROOT = Path(__file__).resolve().parents[1]
-WORKBENCH = ROOT / "ForJyn_Workbench"
-INPUTS_DIR = WORKBENCH / "inputs"
-REFERENCES_DIR = WORKBENCH / "references"
-OUTPUTS_DIR = WORKBENCH / "outputs"
-REVIEWS_DIR = WORKBENCH / "reviews"
-TECHNICAL_DIR = WORKBENCH / "technical"
+INPUTS_DIR = MANUAL_REFERENCES_DIR
+REFERENCES_DIR = MANUAL_REFERENCES_DIR
+TECHNICAL_DIR = RUNTIME_DIR
 BACKEND = ROOT / "tools" / "forjyn_workbench.py"
 
 IMAGE_FILETYPES = [
@@ -62,8 +67,7 @@ PERCENT_LINE_RE = re.compile(r"^\s*\d+(?:\.\d+)?%\s*$")
 
 
 def ensure_workbench_dirs():
-    for path in [WORKBENCH, INPUTS_DIR, REFERENCES_DIR, OUTPUTS_DIR, REVIEWS_DIR, TECHNICAL_DIR]:
-        path.mkdir(parents=True, exist_ok=True)
+    ensure_runtime_dirs()
 
 
 def open_folder(path):
@@ -593,7 +597,7 @@ class ForJynWorkbenchApp:
                     all_ok = False
                     self.log_queue.put(("status", "Failed"))
                     self.log_queue.put(("log", f"Job failed with exit code {returncode}.\n"))
-                    checkpoint = TECHNICAL_DIR / "models" / backend_job_id / "checkpoint.pth" if backend_job_id else None
+                    checkpoint = RUNTIME_MODELS_DIR / backend_job_id / "checkpoint.pth" if backend_job_id else None
                     if checkpoint and checkpoint.exists():
                         self.log_queue.put((
                             "log",
@@ -656,7 +660,7 @@ class ForJynWorkbenchApp:
             return
         if not messagebox.askyesno(
             "Clean temporary references",
-            "Delete only temporary generated-reference files?\n\nThis keeps starter pack, saved references, contact sheets, outputs, models, and reports.",
+            "Delete only temporary generated-reference files?\n\nThis keeps saved references, final candidates, contact sheets, outputs, models, and reports.",
         ):
             return
         result = self._run_backend_helper(["cleanup-temp"])

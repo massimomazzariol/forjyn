@@ -3,10 +3,11 @@ setlocal
 cd /d "%~dp0"
 
 if not exist ".venv\Scripts\python.exe" (
-  echo Python virtual environment not found. Please create/install .venv first.
+  echo Python virtual environment not found.
   echo.
-  echo   python -m venv .venv
-  echo   .venv\Scripts\python -m pip install -r requirements.txt
+  echo Run setup_windows.bat first:
+  echo.
+  echo   setup_windows.bat
   echo.
   pause
   exit /b 1
