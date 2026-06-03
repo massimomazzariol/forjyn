@@ -1,35 +1,57 @@
 # Third-Party Notes
 
-Forjyn is a fork of `yakhyo/fast-neural-style-transfer`.
-
-The upstream README identifies the original project as MIT licensed. Preserve upstream attribution, license notes, and references when changing public documentation or source files.
+ForJyn is based on `yakhyo/fast-neural-style-transfer`. The upstream README identifies the original project as MIT licensed. Preserve upstream attribution when changing public documentation or source files.
 
 ## Upstream Origin
 
 - Project: `yakhyo/fast-neural-style-transfer`
-- Purpose: fast neural style transfer training, inference, ONNX export, and Flask deployment examples
-- License: MIT, as stated in the upstream README inherited by this fork
+- Purpose: fast neural style transfer training, inference, ONNX export, and deployment examples
+- License: MIT, as stated by the inherited upstream README
+- Status in ForJyn: source baseline and tracked demo weights
 
-## Upstream Release Artifacts
+## Tracked Upstream Weights
 
-The upstream `v1.0` release provides PyTorch checkpoints for the inherited styles. Forjyn locally validated only `candy.pth` in `.local/`; this file is not tracked and must not be committed.
+The repository tracks inherited ONNX weights:
+
+- `weights/candy.onnx`
+- `weights/mosaic.onnx`
+- `weights/rain-princess.onnx`
+- `weights/udnie.onnx`
+
+These are upstream baseline/demo artifacts. They are not ForJyn-owned generated models and should not be replaced by local Workbench output.
+
+## Local Upstream Checkpoints
+
+The upstream `v1.0` release provides PyTorch checkpoints. ForJyn previously validated `candy.pth` locally as a technical baseline, but that file belongs under `.local/` and must not be committed.
 
 - Release: `https://github.com/yakhyo/fast-neural-style-transfer/releases/tag/v1.0`
-- Local artifact: `.local/upstream-yakhyo-v1.0/candy.pth`
-- Size: `6,738,604` bytes
-- SHA256: `D458C378A796C7F2B332050995AD1B2D27DD5D73AC3C015C79E4C45D773AF282`
-- Status: upstream baseline, not Forjyn-owned
+- Validated local file: `.local/upstream-yakhyo-v1.0/candy.pth`
+- SHA256 recorded during local validation: `D458C378A796C7F2B332050995AD1B2D27DD5D73AC3C015C79E4C45D773AF282`
+- Status: upstream baseline, not ForJyn-owned
 
-Do not download or use additional upstream checkpoints without an explicit local validation task.
+Do not download or use additional upstream checkpoints without an explicit validation task.
 
-## References To Evaluate Later
+## Runtime And Training Dependencies
 
-These projects may be useful technical references, but they must be reviewed for license compatibility and implementation relevance before use:
+Core dependencies from `requirements.txt`:
 
-- `kleinicke/onnx_small_style`
-- `gnsmrky/pytorch-fast-neural-style-for-web`
-- `pytorch/examples/fast_neural_style`
+- PyTorch and torchvision for training, model code, and VGG16 feature loss.
+- ONNX Runtime for ONNX validation and inference.
+- Pillow for image IO and WebP capability checks.
+- NumPy for tensor/image handling.
+- OpenCV Python and tqdm from the inherited workflow.
+- Flask for the inherited deployment example.
 
-## Asset And Code Boundaries
+VGG16 pretrained weights are used by the training loss path through torchvision. The local cache for those weights should remain local and untracked.
 
-Do not use proprietary competitor models, app assets, extracted code, copied presets, SVGs, or UI assets. Any third-party style reference, dataset, or model must have a clear legal basis before it is used for training, export, or documentation.
+## Optional Local Packages
+
+`onnx` and `onnxscript` may be installed in `.venv/` for modern PyTorch ONNX export. `onnxruntime-directml` may be installed locally for optional DirectML ONNX inference on compatible Windows machines.
+
+These optional packages are environment details, not project artifacts.
+
+## License Boundaries
+
+Package licenses and model/dataset licenses should be checked before public release. If a license or asset provenance is not verified, document it as `not verified` and do not publish the resulting model as release-ready.
+
+Do not use proprietary competitor models, app assets, extracted presets, copied UI assets, unclear datasets, or unclear manual references for training or public model distribution.
