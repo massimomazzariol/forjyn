@@ -18,6 +18,8 @@ The inherited upstream `weights/*.onnx` files remain tracked as upstream baselin
 
 `workbench/` is the only active local runtime root. Legacy local runtime folders remain ignored only for cleanup compatibility and should not be recreated by active workflows.
 
+Tests and CI may set `FORJYN_WORKBENCH_ROOT` to isolate temporary runtime files. That override must still point to a disposable runtime folder and must not be used to commit generated artifacts.
+
 ## Upstream Baselines
 
 The tracked upstream ONNX weights are useful for compatibility checks, but they are fixed at `1080x1080` spatial size and are not the final ForJyn target.

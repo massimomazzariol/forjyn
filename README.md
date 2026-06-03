@@ -1,38 +1,53 @@
 # ForJyn
 
-ForJyn is a local Windows/Python workbench for generating and testing ONNX style-transfer models from reference images. It is experimental, local-first, and organized around one runtime folder: `workbench/`.
+[![CI](https://github.com/massimomazzariol/forjyn/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/massimomazzariol/forjyn/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.11-blue)
+![Windows](https://img.shields.io/badge/windows-local%20workbench-0078D4)
+![ONNX](https://img.shields.io/badge/ONNX-dynamic%20H%2FW-005CED)
 
-## What It Does
+ForJyn is a local Windows/Python workbench for creating, exporting, and testing ONNX style-transfer models from manual or procedurally generated reference images.
+
+It builds on the fast neural style transfer architecture from `yakhyo/fast-neural-style-transfer`, which follows *Perceptual Losses for Real-Time Style Transfer and Super-Resolution* and instance normalization. ForJyn adds a local GUI workflow, procedural reference generation, dynamic H/W ONNX export, review outputs, and stricter artifact hygiene.
+
+## What ForJyn Does
 
 - Choose a content photo from any local path.
 - Choose manual style/reference images or generate procedural references locally.
-- Train one PyTorch style model per selected reference.
-- Export dynamic height/width, shape-preserving ONNX models.
-- Validate and apply ONNX models to the content photo.
+- Train one PyTorch style-transfer model per selected reference.
+- Export dynamic height/width, shape-preserving ONNX.
+- Validate and apply ONNX locally with CPU fallback and optional DirectML inference.
 - Create review sheets for human screening.
 
-## Fresh Clone Workflow
+ForJyn is not a finished filter pack. It is an experimental local workbench. Visual review is still required before any model is called useful or release-ready.
+
+## Screenshots
+
+Screenshots are not committed yet. See [docs/assets/screenshots](docs/assets/screenshots/README.md) for the capture checklist. The repository avoids committing casual runtime screenshots, private images, or unreviewed generated outputs.
+
+## Quick Start On Windows
 
 ```powershell
-git clone <repo-url>
+git clone https://github.com/massimomazzariol/forjyn.git
 cd forjyn
 setup_windows.bat
 run_forjyn_workbench.bat
 ```
 
-In the GUI:
+`setup_windows.bat` creates `.venv/` and installs `requirements.txt`. It does not train models, export ONNX, or generate images.
+
+## Basic Workflow
 
 1. Choose a content photo.
-2. Choose or generate style/reference images.
-3. Select Draft, Normal, or Final quality.
+2. Choose manual reference images or generate procedural references.
+3. Pick Draft, Normal, or Final quality.
 4. Start the job.
 5. Review outputs in `workbench/outputs/`.
 
-`setup_windows.bat` creates `.venv/`, installs `requirements.txt`, and prints the launcher command. It does not start training.
+Use Draft for screening, Normal for promising candidates, and Final only after a reference is worth the time.
 
-## Runtime Layout
+## Runtime Folders
 
-`workbench/` is ignored by Git and can be recreated after a clean clone.
+`workbench/` is the only active local runtime root and is ignored by Git.
 
 ```text
 workbench/
@@ -52,27 +67,41 @@ workbench/
     logs/
 ```
 
-Normal users work mainly in `manual-references/`, `generated-references/`, `outputs/`, and `reviews/`. `_runtime/` stores technical files such as caches, checkpoints, ONNX exports, reports, and logs.
-The VGG/Torch cache is stored at `workbench/_runtime/cache/torch/`.
+Normal users work mainly in `manual-references/`, `generated-references/`, `outputs/`, and `reviews/`. Technical files, caches, checkpoints, ONNX exports, logs, and validation reports live under `workbench/_runtime/`.
 
-## Current Status
+For tests and CI, the runtime root can be redirected with `FORJYN_WORKBENCH_ROOT`.
 
-ForJyn is a working local workbench, not a finished filter pack. Outputs still need human visual review, and generated models should be treated as candidates until their references, training settings, validation, and license status are documented.
+## Testing
 
-## Key Features
+```powershell
+scripts\run_tests.bat
+```
 
-- Minimal Tkinter GUI.
-- Procedural reference generator with traceable seeds and metadata.
-- Draft/Normal/Final training presets.
-- Dynamic H/W ONNX export with shape-preserving output.
-- ONNX validation and apply workflow.
-- Optional DirectML ONNX inference path with CPU fallback.
-- JPG, PNG, and WebP support when Pillow supports WebP.
-- Review sheet creation for completed outputs.
+The local test script runs unit tests and compiles the main tools. CI runs on Windows and does not train models, generate ONNX, process content images, or upload artifacts.
 
-## Reproducibility Note
+## Reproducibility
 
-ForJyn does not guarantee byte-identical ONNX reproduction. Procedural seeds and metadata make generated references traceable, but training output can vary by environment, PyTorch build, device, and dependency versions. The goal is a functionally reproducible workflow: clone, set up, run the GUI, generate or choose references, train/export ONNX, and review outputs.
+ForJyn targets functional reproducibility: clone, set up, run the GUI, generate or choose references, train/export ONNX, and review outputs.
+
+It does not promise byte-identical ONNX reproduction. Training output can vary by hardware, PyTorch build, dependency versions, random seeds, and runtime provider. Procedural references record seeds and metadata so candidate sources remain traceable.
+
+## Model And Artifact Policy
+
+Generated checkpoints, ONNX files, `.onnx.data` sidecars, output images, review sheets, contact sheets, caches, copied references, local reports, and the whole `workbench/` runtime are not committed.
+
+The inherited upstream ONNX weights in `weights/` stay tracked as baseline/demo files. Future selected ForJyn models should be distributed as release assets with model cards, attribution, validation results, and known limitations, not written into Git history.
+
+## Third-Party And Upstream Credits
+
+- Upstream project: [`yakhyo/fast-neural-style-transfer`](https://github.com/yakhyo/fast-neural-style-transfer)
+- Upstream method: perceptual losses for real-time style transfer and super-resolution, plus instance normalization.
+- Core libraries: PyTorch, torchvision, ONNX, ONNX Runtime, Pillow, NumPy.
+- Optional Windows inference acceleration: ONNX Runtime DirectML, with CPU fallback.
+- Training loss path may use VGG16 pretrained weights through torchvision.
+
+The upstream README states MIT licensing for the original project. See [docs/THIRD_PARTY.md](docs/THIRD_PARTY.md) for attribution, dependency notes, and current license boundaries.
+
+Do not train or publish models from unclear third-party assets, commercial app presets, copied UI assets, proprietary model files, or references whose provenance is not documented.
 
 ## Documentation
 
@@ -81,11 +110,3 @@ ForJyn does not guarantee byte-identical ONNX reproduction. Procedural seeds and
 - [Model policy](docs/MODEL_POLICY.md)
 - [Third-party notes](docs/THIRD_PARTY.md)
 - [Worklog](docs/WORKLOG.md)
-
-## Artifact Policy
-
-Generated checkpoints, ONNX files, `.onnx.data` sidecars, output images, local reports, caches, and workbench files are not committed. When final models are ready to distribute, they should be packaged as release assets rather than written into Git history.
-
-## License And Third-Party
-
-ForJyn is based on `yakhyo/fast-neural-style-transfer`; see [docs/THIRD_PARTY.md](docs/THIRD_PARTY.md) for attribution, dependency notes, and license status. Do not use unclear third-party assets, commercial app presets, copied UI assets, or proprietary model files for training or release work.

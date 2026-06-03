@@ -13,6 +13,7 @@ ForJyn is not a full Photoshop-like editor and not a cloud service. It does not 
 - Validate and apply ONNX models locally.
 - Create review sheets for candidate screening.
 - Keep generated artifacts under ignored `workbench/` unless a release process explicitly packages them.
+- Keep CI and local tests lightweight: path checks, CLI smoke checks, generator smoke checks, and repository hygiene only.
 
 ## Out Of Scope
 
@@ -35,6 +36,7 @@ output: 1 x 3 x height x width
 Height and width should be dynamic for Workbench exports, and applying a model should preserve the original content image dimensions.
 
 The active local runtime path is `workbench/`; technical internals live under `workbench/_runtime/`.
+CI and tests may redirect that runtime with `FORJYN_WORKBENCH_ROOT` so checks do not write into a user's real workbench.
 
 ## Release Direction
 

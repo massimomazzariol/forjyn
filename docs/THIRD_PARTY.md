@@ -2,6 +2,8 @@
 
 ForJyn is based on `yakhyo/fast-neural-style-transfer`. The upstream README identifies the original project as MIT licensed. Preserve upstream attribution when changing public documentation or source files.
 
+The upstream model follows perceptual losses for real-time style transfer and super-resolution, with instance normalization. ForJyn keeps that technical lineage visible while adding its own local Workbench, dynamic H/W export workflow, and artifact policy.
+
 ## Upstream Origin
 
 - Project: `yakhyo/fast-neural-style-transfer`
@@ -39,10 +41,11 @@ Core dependencies from `requirements.txt`:
 - ONNX, ONNX Script, and ONNX Runtime for export, validation, and inference.
 - Pillow for image IO and WebP capability checks.
 - NumPy for tensor/image handling.
-- OpenCV Python and tqdm from the inherited workflow.
 - Flask for the inherited deployment example.
 
 VGG16 pretrained weights are used by the training loss path through torchvision. The local cache for those weights should remain local and untracked.
+
+GitHub Actions installs the same declared project requirements for smoke tests. The CI workflow does not train, export ONNX, process user images, or upload runtime artifacts.
 
 ## DirectML
 

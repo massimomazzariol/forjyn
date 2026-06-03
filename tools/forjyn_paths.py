@@ -1,9 +1,22 @@
+import os
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+WORKBENCH_ENV_VAR = "FORJYN_WORKBENCH_ROOT"
 
-WORKBENCH = ROOT / "workbench"
+
+def workbench_root():
+    configured = os.environ.get(WORKBENCH_ENV_VAR)
+    if not configured:
+        return ROOT / "workbench"
+    candidate = Path(configured).expanduser()
+    if candidate.is_absolute():
+        return candidate.resolve()
+    return (ROOT / candidate).resolve()
+
+
+WORKBENCH = workbench_root()
 MANUAL_REFERENCES_DIR = WORKBENCH / "manual-references"
 FINAL_CANDIDATES_DIR = WORKBENCH / "final-candidates"
 GENERATED_REFERENCES_DIR = WORKBENCH / "generated-references"

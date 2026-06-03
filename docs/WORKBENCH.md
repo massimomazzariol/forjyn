@@ -49,6 +49,14 @@ Normal users should focus on:
 Technical files live under `workbench/_runtime/`.
 The VGG/Torch cache is stored at `workbench/_runtime/cache/torch/`.
 
+Automated tests and CI may redirect the runtime root with:
+
+```text
+FORJYN_WORKBENCH_ROOT
+```
+
+This is only for isolation. The normal local user runtime remains `workbench/`.
+
 ## Content Photo
 
 The content photo is the image ForJyn transforms. It can be selected from any local path. Supported formats are JPG, JPEG, PNG, and WebP when the current Pillow build supports WebP.
@@ -169,3 +177,13 @@ Checkpoint recovery: keep the local `workbench/_runtime/models/...` folder until
 ## Reproducibility Note
 
 ForJyn does not guarantee byte-identical ONNX reproduction. Procedural seeds and metadata make generated references traceable, but training can vary across machines, dependency versions, devices, and PyTorch builds. The intended guarantee is functional reproducibility of the workflow: setup, GUI launch, reference generation/selection, train/export, apply, and review.
+
+## Local Tests
+
+Run the lightweight local checks with:
+
+```powershell
+scripts\run_tests.bat
+```
+
+The tests use temporary runtime folders, do not train, and do not generate ONNX.
