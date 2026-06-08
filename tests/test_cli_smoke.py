@@ -72,6 +72,8 @@ class CliSmokeTests(unittest.TestCase):
         completed, _tmp = self.run_forjyn("tools/forjyn_workbench_gui.py", "--check")
         self.assertIn("ForJyn Workbench GUI check", completed.stdout)
         self.assertIn("Workbench:", completed.stdout)
+        self.assertIn("Run monitor: available", completed.stdout)
+        self.assertIn("Stop/Cancel: available", completed.stdout)
 
 
 if __name__ == "__main__":

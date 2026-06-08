@@ -774,6 +774,9 @@ def write_job_outputs(trained, content, job_dir, style_slug, style_name=None, or
     }
     write_json(job_dir / "job-summary.json", job_summary)
     write_output_readme(job_dir, trained.name, style_name or style_slug, content)
+    provider_used = apply_result.get("provider", {}).get("provider_used")
+    if provider_used:
+        progress("ONNX_PROVIDER", provider_used)
     progress("ONNX_PATH", final_onnx.resolve() if final_onnx else "")
     progress("IMAGE_OUTPUT", Path(apply_result["output"]).resolve() if Path(apply_result["output"]).is_absolute() else (ROOT / apply_result["output"]).resolve())
     return job_summary

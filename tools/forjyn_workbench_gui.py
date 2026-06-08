@@ -6,6 +6,7 @@ import re
 import subprocess
 import sys
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 import tkinter as tk
@@ -14,6 +15,11 @@ from tkinter import ttk
 from tkinter.scrolledtext import ScrolledText
 
 from PIL import Image, ImageTk
+
+try:
+    import psutil
+except Exception:
+    psutil = None
 
 
 TOOLS_DIR = Path(__file__).resolve().parent
@@ -64,13 +70,15 @@ QUALITY_DESCRIPTIONS = {
 
 IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"]
 PERCENT_LINE_RE = re.compile(r"^\s*\d+(?:\.\d+)?%\s*$")
+HEARTBEAT_INTERVAL_SECONDS = 10
+CANCEL_TIMEOUT_SECONDS = 5
 
 
 def ensure_workbench_dirs():
     ensure_runtime_dirs()
 
 
-def open_folder(path):
+def open_path(path):
     path = Path(path)
     if os.name == "nt":
         os.startfile(str(path))
@@ -78,11 +86,50 @@ def open_folder(path):
         subprocess.Popen(["xdg-open", str(path)])
 
 
+def open_folder(path):
+    open_path(path)
+
+
 def rel(path):
     try:
         return str(Path(path).resolve().relative_to(ROOT)).replace("\\", "/")
     except ValueError:
         return str(Path(path).resolve())
+
+
+def format_elapsed(seconds):
+    seconds = max(0, int(seconds))
+    hours, remainder = divmod(seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+
+def workbench_status_text(info):
+    return "Workbench ready" if str(info.get("workbench", "")).lower() == "ready" else "Workbench not ready"
+
+
+def training_status_text(info):
+    training = info.get("training_device", "CPU only")
+    if str(training).lower().startswith("cpu"):
+        return "Training: CPU"
+    return f"Training: {training}"
+
+
+def onnx_status_text(info):
+    if info.get("directml_available") == "yes":
+        return "ONNX apply: GPU acceleration available"
+    return "ONNX apply: CPU only"
+
+
+def environment_details_text(info):
+    providers = ", ".join(info.get("providers") or []) or "none"
+    return "\n".join(
+        [
+            info.get("pytorch", "PyTorch: not available"),
+            f"ONNX Runtime providers: {providers}",
+            f"WebP supported: {info.get('webp_supported', 'no')}",
+        ]
+    )
 
 
 def environment_info():
@@ -153,16 +200,31 @@ class ForJynWorkbenchApp:
         self.styles_summary = StringVar(value="No style/reference images selected")
         self.quality = StringVar(value="Normal candidate - 800 steps")
         self.quality_description = StringVar(value=QUALITY_DESCRIPTIONS[self.quality.get()])
-        self.progress_status = StringVar(value="Waiting")
-        self.current_job = StringVar(value="Current job: idle")
-        self.current_stage = StringVar(value="Current stage: Waiting")
-        self.style_progress = StringVar(value="Style progress: 0 of 0")
-        self.output_status = StringVar(value=f"Output folder: {rel(OUTPUTS_DIR)}")
+        self.progress_status = StringVar(value="Status: Idle")
+        self.current_job = StringVar(value="Job: idle")
+        self.current_stage = StringVar(value="Stage: Waiting")
+        self.elapsed_time = StringVar(value="Elapsed: 00:00:00")
+        self.style_progress = StringVar(value="Style progress: 0/0")
+        self.process_pid = StringVar(value="PID: -")
+        self.process_cpu = StringVar(value="CPU: -")
+        self.process_ram = StringVar(value="RAM: -")
+        self.onnx_provider = StringVar(value="ONNX provider: pending")
+        self.output_status = StringVar(value=f"Output: {rel(OUTPUTS_DIR)}")
+        self.results_status = StringVar(value="Results: none yet")
         self.env_info = environment_info()
         self.style_paths = []
         self.completed_dirs = []
         self.last_output_dir = None
+        self.last_image_output = None
+        self.last_onnx_path = None
+        self.last_review_sheet = None
         self.current_backend_job_id = None
+        self.current_process = None
+        self.run_started_at = None
+        self.cancel_requested = False
+        self._last_cpu_sample = None
+        self._last_heartbeat_at = 0.0
+        self._details_visible = False
         self.running = False
         self.log_queue = queue.Queue()
 
@@ -183,8 +245,23 @@ class ForJynWorkbenchApp:
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
 
-        frame = ttk.Frame(self.root, padding=16)
-        frame.grid(row=0, column=0, sticky="nsew")
+        outer = ttk.Frame(self.root)
+        outer.grid(row=0, column=0, sticky="nsew")
+        outer.columnconfigure(0, weight=1)
+        outer.rowconfigure(0, weight=1)
+
+        self.main_canvas = tk.Canvas(outer, highlightthickness=0)
+        self.main_canvas.grid(row=0, column=0, sticky="nsew")
+        scrollbar = ttk.Scrollbar(outer, orient="vertical", command=self.main_canvas.yview)
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        self.main_canvas.configure(yscrollcommand=scrollbar.set)
+
+        frame = ttk.Frame(self.main_canvas, padding=16)
+        self.main_window = self.main_canvas.create_window((0, 0), window=frame, anchor="nw")
+        frame.bind("<Configure>", lambda _event: self.main_canvas.configure(scrollregion=self.main_canvas.bbox("all")))
+        self.main_canvas.bind("<Configure>", lambda event: self.main_canvas.itemconfigure(self.main_window, width=event.width))
+        self.main_canvas.bind("<Enter>", lambda _event: self.main_canvas.bind_all("<MouseWheel>", self._on_mousewheel))
+        self.main_canvas.bind("<Leave>", lambda _event: self.main_canvas.unbind_all("<MouseWheel>"))
         frame.columnconfigure(0, weight=1)
         frame.rowconfigure(7, weight=1)
 
@@ -196,23 +273,26 @@ class ForJynWorkbenchApp:
         )
         subtitle.grid(row=1, column=0, sticky="w", pady=(2, 12))
 
-        status_box = ttk.LabelFrame(frame, text="Status", padding=10)
+        status_box = ttk.LabelFrame(frame, text="System", padding=10)
         status_box.grid(row=2, column=0, sticky="ew", pady=6)
         status_box.columnconfigure(1, weight=1)
         status_items = [
-            ("Workbench", self.env_info["workbench"]),
-            ("Training device", self.env_info["training_device"]),
-            ("PyTorch", self.env_info["pytorch"].replace("PyTorch: ", "")),
-            ("ONNX acceleration", self.env_info["inference_acceleration"]),
-            ("ONNX providers", self.env_info["onnxruntime"].replace("ONNX Runtime: ", "")),
-            ("WebP", self.env_info["webp_supported"]),
-            ("Output folder", rel(OUTPUTS_DIR)),
+            ("System", workbench_status_text(self.env_info)),
+            ("Training", training_status_text(self.env_info).replace("Training: ", "")),
+            ("ONNX apply", onnx_status_text(self.env_info).replace("ONNX apply: ", "")),
+            ("Output", rel(OUTPUTS_DIR)),
         ]
         for index, (label, value) in enumerate(status_items):
-            row = index // 2
-            col = (index % 2) * 2
-            ttk.Label(status_box, text=f"{label}:", font=("Segoe UI", 9, "bold")).grid(row=row, column=col, sticky="w", padx=(0, 6), pady=2)
-            ttk.Label(status_box, text=value).grid(row=row, column=col + 1, sticky="w", padx=(0, 16), pady=2)
+            ttk.Label(status_box, text=f"{label}:", font=("Segoe UI", 9, "bold")).grid(row=index, column=0, sticky="w", padx=(0, 6), pady=2)
+            ttk.Label(status_box, text=value).grid(row=index, column=1, sticky="w", padx=(0, 16), pady=2)
+        self.env_details_button = ttk.Button(status_box, text="Environment details", command=self.toggle_environment_details)
+        self.env_details_button.grid(row=0, column=2, sticky="ne", padx=(12, 0))
+        self.env_details_label = ttk.Label(
+            status_box,
+            text=environment_details_text(self.env_info),
+            wraplength=760,
+            foreground="#586174",
+        )
 
         content_box = ttk.LabelFrame(frame, text="Step 1 - Choose content photo", padding=10)
         content_box.grid(row=3, column=0, sticky="ew", pady=6)
@@ -272,42 +352,93 @@ class ForJynWorkbenchApp:
 
         generate_box = ttk.LabelFrame(frame, text="Step 4 - Generate", padding=10)
         generate_box.grid(row=6, column=0, sticky="ew", pady=6)
-        generate_box.columnconfigure(5, weight=1)
-        self.start_button = ttk.Button(generate_box, text="Start", command=self.start_jobs, style="Accent.TButton")
+        generate_box.columnconfigure(0, weight=1)
+        actions = ttk.Frame(generate_box)
+        actions.grid(row=0, column=0, sticky="ew")
+        actions.columnconfigure(5, weight=1)
+        self.start_button = ttk.Button(actions, text="Start", command=self.start_jobs, style="Accent.TButton")
         self.start_button.grid(row=0, column=0, padx=(0, 8))
-        self.open_output_button = ttk.Button(generate_box, text="Open output folder", command=self.open_output, state=DISABLED)
-        self.open_output_button.grid(row=0, column=1, padx=(0, 8))
-        self.review_sheet_button = ttk.Button(generate_box, text="Create review sheet", command=self.create_review_sheet)
-        self.review_sheet_button.grid(row=0, column=2, padx=(0, 8))
-        self.clean_temp_button = ttk.Button(generate_box, text="Clean temporary refs", command=self.clean_temp_references)
-        self.clean_temp_button.grid(row=0, column=3, padx=(0, 8))
-        self.open_workbench_button = ttk.Button(generate_box, text="Open workbench folder", command=lambda: open_folder(WORKBENCH))
-        self.open_workbench_button.grid(row=0, column=4, padx=(0, 12))
-        ttk.Label(generate_box, textvariable=self.progress_status).grid(row=0, column=5, sticky="e")
+        self.stop_button = ttk.Button(actions, text="Stop current job", command=self.cancel_current_job, state=DISABLED)
+        self.stop_button.grid(row=0, column=1, padx=(0, 8))
+        self.clean_temp_button = ttk.Button(actions, text="Clean temporary refs", command=self.clean_temp_references)
+        self.clean_temp_button.grid(row=0, column=2, padx=(0, 8))
+        self.open_workbench_button = ttk.Button(actions, text="Open workbench folder", command=lambda: open_folder(WORKBENCH))
+        self.open_workbench_button.grid(row=0, column=3, padx=(0, 12))
+        ttk.Label(actions, textvariable=self.progress_status).grid(row=0, column=5, sticky="e")
         self.progress = ttk.Progressbar(generate_box, mode="indeterminate")
-        self.progress.grid(row=1, column=0, columnspan=6, sticky="ew", pady=(10, 0))
-        ttk.Label(generate_box, textvariable=self.current_job).grid(row=2, column=0, columnspan=6, sticky="w", pady=(8, 0))
-        ttk.Label(generate_box, textvariable=self.current_stage).grid(row=3, column=0, columnspan=3, sticky="w")
-        ttk.Label(generate_box, textvariable=self.style_progress).grid(row=3, column=3, columnspan=3, sticky="e")
-        ttk.Label(generate_box, textvariable=self.output_status).grid(row=4, column=0, columnspan=6, sticky="w")
+        self.progress.grid(row=1, column=0, sticky="ew", pady=(10, 0))
+
+        ttk.Label(generate_box, text="Run monitor", font=("Segoe UI", 10, "bold")).grid(row=2, column=0, sticky="w", pady=(10, 4))
+        monitor = ttk.Frame(generate_box)
+        monitor.grid(row=3, column=0, sticky="ew")
+        for column in range(3):
+            monitor.columnconfigure(column, weight=1)
+        monitor_items = [
+            self.progress_status,
+            self.current_stage,
+            self.elapsed_time,
+            self.current_job,
+            self.style_progress,
+            self.process_pid,
+            self.process_cpu,
+            self.process_ram,
+            self.onnx_provider,
+            self.output_status,
+        ]
+        for index, variable in enumerate(monitor_items):
+            row = index // 3
+            column = index % 3
+            columnspan = 3 if index == len(monitor_items) - 1 else 1
+            ttk.Label(monitor, textvariable=variable).grid(row=row, column=column, columnspan=columnspan, sticky="w", padx=(0, 12), pady=2)
+
+        ttk.Label(generate_box, text="Results", font=("Segoe UI", 10, "bold")).grid(row=4, column=0, sticky="w", pady=(10, 4))
+        results = ttk.Frame(generate_box)
+        results.grid(row=5, column=0, sticky="ew")
+        self.open_result_image_button = ttk.Button(results, text="Open output image", command=self.open_output_image, state=DISABLED)
+        self.open_result_image_button.grid(row=0, column=0, padx=(0, 8), pady=2)
+        self.open_output_button = ttk.Button(results, text="Open output folder", command=self.open_output, state=DISABLED)
+        self.open_output_button.grid(row=0, column=1, padx=(0, 8), pady=2)
+        self.open_onnx_folder_button = ttk.Button(results, text="Open ONNX folder", command=self.open_onnx_folder, state=DISABLED)
+        self.open_onnx_folder_button.grid(row=0, column=2, padx=(0, 8), pady=2)
+        self.review_sheet_button = ttk.Button(results, text="Create review sheet", command=self.create_review_sheet, state=DISABLED)
+        self.review_sheet_button.grid(row=0, column=3, padx=(0, 8), pady=2)
+        self.copy_onnx_button = ttk.Button(results, text="Copy ONNX path", command=self.copy_onnx_path, state=DISABLED)
+        self.copy_onnx_button.grid(row=0, column=4, padx=(0, 8), pady=2)
+        ttk.Label(generate_box, textvariable=self.results_status, foreground="#586174").grid(row=6, column=0, sticky="w", pady=(4, 0))
 
         log_box = ttk.LabelFrame(frame, text="Log", padding=8)
         log_box.grid(row=7, column=0, sticky="nsew", pady=(8, 0))
         log_box.columnconfigure(0, weight=1)
         log_box.rowconfigure(0, weight=1)
-        self.log = ScrolledText(log_box, height=13, wrap="word", font=("Consolas", 10))
+        self.log = ScrolledText(log_box, height=9, wrap="word", font=("Consolas", 10))
         self.log.grid(row=0, column=0, sticky="nsew")
+        self.log.tag_configure("warning", foreground="#8A5A00")
+        self.log.tag_configure("complete", foreground="#0B6B3A")
+        self.log.tag_configure("cancelled", foreground="#7A4A00")
+        self.log.tag_configure("error", foreground="#A32424")
         self.log.configure(state=DISABLED)
+
+    def _on_mousewheel(self, event):
+        if not hasattr(self, "main_canvas"):
+            return
+        delta = -1 if event.delta > 0 else 1
+        self.main_canvas.yview_scroll(delta, "units")
+
+    def toggle_environment_details(self):
+        self._details_visible = not self._details_visible
+        if self._details_visible:
+            self.env_details_label.grid(row=4, column=0, columnspan=3, sticky="w", pady=(8, 0))
+            self.env_details_button.configure(text="Hide details")
+        else:
+            self.env_details_label.grid_remove()
+            self.env_details_button.configure(text="Environment details")
 
     def _write_initial_log(self):
         self._append_log("ForJyn Workbench ready.\n")
-        self._append_log(f"{self.env_info['device']}\n")
-        self._append_log(f"PyTorch CUDA available: {self.env_info['cuda_available']}\n")
-        self._append_log(f"{self.env_info['pytorch']}\n")
-        self._append_log(f"{self.env_info['onnxruntime']}\n")
-        self._append_log(f"DirectMLExecutionProvider available: {self.env_info['directml_available']}\n")
-        self._append_log(f"Supported image extensions: {', '.join(IMAGE_EXTENSIONS)}\n")
-        self._append_log(f"WebP supported: {self.env_info['webp_supported']}\n")
+        self._append_log(f"{training_status_text(self.env_info)}\n")
+        self._append_log(f"{onnx_status_text(self.env_info)}\n")
+        self._append_log(f"Output: {rel(OUTPUTS_DIR)}\n")
+        self._append_log(environment_details_text(self.env_info) + "\n")
         for error in self.env_info["errors"]:
             self._append_log(f"Warning: {error}\n")
 
@@ -370,35 +501,144 @@ class ForJynWorkbenchApp:
     def _update_start_state(self):
         can_start = bool(self.content_path.get()) and bool(self.style_paths) and not self.running
         self.start_button.configure(state=NORMAL if can_start else DISABLED)
+        stop_state = NORMAL if self.running and not self.cancel_requested else DISABLED
+        self.stop_button.configure(state=stop_state)
+        self._update_results_state()
 
     def _set_inputs_state(self, state):
         self.choose_content_button.configure(state=state)
         self.choose_styles_button.configure(state=state)
         self.generate_refs_button.configure(state=state)
         self.quality_menu.configure(state="readonly" if state == NORMAL else DISABLED)
-        self.review_sheet_button.configure(state=state)
         self.clean_temp_button.configure(state=state)
         self.open_workbench_button.configure(state=state)
+        self._update_results_state()
+
+    def _path_exists(self, path):
+        try:
+            return bool(path) and Path(path).exists()
+        except Exception:
+            return False
+
+    def _update_results_state(self):
+        if not hasattr(self, "open_output_button"):
+            return
+        ready = not self.running
+        has_output_dir = self._path_exists(self.last_output_dir)
+        has_image = self._path_exists(self.last_image_output)
+        has_onnx = self._path_exists(self.last_onnx_path)
+        has_completed = bool(self.completed_dirs or has_output_dir)
+
+        self.open_result_image_button.configure(state=NORMAL if ready and has_image else DISABLED)
+        self.open_output_button.configure(state=NORMAL if ready and has_output_dir else DISABLED)
+        self.open_onnx_folder_button.configure(state=NORMAL if ready and has_onnx else DISABLED)
+        self.copy_onnx_button.configure(state=NORMAL if ready and has_onnx else DISABLED)
+        self.review_sheet_button.configure(state=NORMAL if ready and has_completed else DISABLED)
+
+        if self.running:
+            self.results_status.set("Results: running")
+        elif has_image or has_onnx or has_output_dir:
+            self.results_status.set("Results: latest job output available")
+        else:
+            self.results_status.set("Results: none yet")
+
+    def _update_elapsed_status(self):
+        if self.run_started_at is None:
+            self.elapsed_time.set("Elapsed: 00:00:00")
+            return "00:00:00"
+        elapsed = format_elapsed(time.monotonic() - self.run_started_at)
+        self.elapsed_time.set(f"Elapsed: {elapsed}")
+        return elapsed
+
+    def _collect_process_metrics(self):
+        process = self.current_process
+        if process is None or process.poll() is not None:
+            self._last_cpu_sample = None
+            return None, None, None
+        pid = process.pid
+        if psutil is None:
+            return pid, None, None
+        try:
+            parent = psutil.Process(pid)
+            processes = [parent] + parent.children(recursive=True)
+            total_cpu_seconds = 0.0
+            total_rss = 0
+            for item in processes:
+                try:
+                    with item.oneshot():
+                        cpu_times = item.cpu_times()
+                        total_cpu_seconds += float(cpu_times.user + cpu_times.system)
+                        total_rss += int(item.memory_info().rss)
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+            now = time.monotonic()
+            cpu_percent = None
+            if self._last_cpu_sample is not None:
+                previous_time, previous_cpu = self._last_cpu_sample
+                elapsed = max(0.001, now - previous_time)
+                cpu_percent = max(0.0, (total_cpu_seconds - previous_cpu) / elapsed * 100.0)
+            self._last_cpu_sample = (now, total_cpu_seconds)
+            return pid, cpu_percent, total_rss / (1024 * 1024)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            self._last_cpu_sample = None
+            return pid, None, None
+
+    def _refresh_run_monitor(self):
+        if not self.running:
+            return
+        elapsed = self._update_elapsed_status()
+        pid, cpu_percent, ram_mb = self._collect_process_metrics()
+        self.process_pid.set(f"PID: {pid}" if pid else "PID: -")
+        cpu_text = "-" if cpu_percent is None else f"{cpu_percent:.0f}%"
+        ram_text = "-" if ram_mb is None else f"{ram_mb:.0f} MB"
+        self.process_cpu.set(f"CPU: {cpu_text}")
+        self.process_ram.set(f"RAM: {ram_text}")
+
+        now = time.monotonic()
+        if pid and now - self._last_heartbeat_at >= HEARTBEAT_INTERVAL_SECONDS:
+            self._last_heartbeat_at = now
+            stage = self.current_stage.get().replace("Stage: ", "").lower()
+            self._append_log(
+                f"Still running | elapsed {elapsed} | PID {pid} | CPU {cpu_text} | RAM {ram_text} | stage: {stage}\n"
+            )
+        self.root.after(1000, self._refresh_run_monitor)
 
     def _append_log(self, text):
+        autoscroll = self.log.yview()[1] >= 0.999
         self.log.configure(state=NORMAL)
         for line in text.splitlines(True):
             prefix = f"[{short_time()}] " if line.strip() else ""
-            self.log.insert(END, prefix + line)
-        self.log.see(END)
+            tagged_line = prefix + line
+            self.log.insert(END, tagged_line, self._log_tag(line))
+        if autoscroll:
+            self.log.see(END)
         self.log.configure(state=DISABLED)
 
+    def _log_tag(self, line):
+        lower = line.lower()
+        if "warning" in lower:
+            return "warning"
+        if "cancel" in lower:
+            return "cancelled"
+        if "failed" in lower or "error" in lower:
+            return "error"
+        if "complete" in lower or "done" in lower:
+            return "complete"
+        return ()
+
     def _set_progress_status(self, value):
-        self.progress_status.set(value)
+        self.progress_status.set(f"Status: {value}")
 
     def _stage_label(self, stage):
         return {
+            "starting": "Starting",
             "training": "Training",
             "exporting": "Exporting ONNX",
             "validating": "Validating",
             "applying": "Applying",
             "done": "Done",
             "failed": "Failed",
+            "cancelled": "Cancelled",
         }.get(stage.strip().lower(), stage.strip())
 
     def _is_progress_noise(self, line):
@@ -426,6 +666,8 @@ class ForJynWorkbenchApp:
             self.log_queue.put(("onnx_path", value))
         elif key == "IMAGE_OUTPUT":
             self.log_queue.put(("image_output", value))
+        elif key in {"ONNX_PROVIDER", "PROVIDER"}:
+            self.log_queue.put(("onnx_provider", value))
         elif key == "PROGRESS":
             pass
         return True
@@ -438,35 +680,61 @@ class ForJynWorkbenchApp:
                     self._append_log(payload)
                 elif kind == "output_dir":
                     self.last_output_dir = payload
-                    self.completed_dirs.append(payload)
-                    self.open_output_button.configure(state=NORMAL)
-                    self.output_status.set(f"Output folder: {payload}")
+                    if payload not in self.completed_dirs:
+                        self.completed_dirs.append(payload)
+                    self.output_status.set(f"Output: {payload}")
+                    self._update_results_state()
                 elif kind == "status":
-                    self._set_progress_status(payload)
-                    self.current_stage.set(f"Current stage: {payload}")
+                    if payload in {"Failed", "Cancelled"}:
+                        self._set_progress_status(payload)
+                    elif payload == "Done":
+                        self._set_progress_status("Completed")
+                    elif self.running:
+                        self._set_progress_status("Running")
+                    self.current_stage.set(f"Stage: {payload}")
                 elif kind == "current_job":
-                    self.current_job.set(f"Current job: {payload}")
+                    self.current_job.set(f"Job: {payload}")
                 elif kind == "style_progress":
                     self.style_progress.set(payload)
                 elif kind == "runtime_output":
-                    self.output_status.set(f"Output folder: {payload}")
+                    self.output_status.set(f"Output: {payload}")
                 elif kind == "onnx_path":
+                    self.last_onnx_path = payload
                     self._append_log(f"ONNX: {payload}\n")
+                    self._update_results_state()
                 elif kind == "image_output":
+                    self.last_image_output = payload
                     self._append_log(f"Image output: {payload}\n")
+                    self._update_results_state()
+                elif kind == "onnx_provider":
+                    self.onnx_provider.set(f"ONNX provider: {payload or 'unknown'}")
+                elif kind == "process_pid":
+                    self.process_pid.set(f"PID: {payload}" if payload else "PID: -")
                 elif kind == "done":
+                    was_cancelled = payload == "cancelled"
+                    was_successful = payload is True or payload == "completed"
                     self.running = False
+                    self.current_process = None
                     self.progress.stop()
                     self._set_inputs_state(NORMAL)
-                    self._update_start_state()
-                    final_status = "Done" if payload else "Failed"
+                    self.process_pid.set("PID: -")
+                    self.process_cpu.set("CPU: -")
+                    self.process_ram.set("RAM: -")
+                    self._update_elapsed_status()
+                    final_status = "Cancelled" if was_cancelled else "Completed" if was_successful else "Failed"
                     self._set_progress_status(final_status)
-                    if payload and self.last_output_dir:
-                        self._append_log(f"Done.\nONNX and outputs are in: {self.last_output_dir}\n")
+                    self.current_stage.set(f"Stage: {final_status}")
+                    if was_cancelled:
+                        self._append_log("Cancelled. The current job process was stopped.\n")
+                    elif was_successful and self.last_output_dir:
+                        self._append_log(f"Completed.\nONNX and outputs are in: {self.last_output_dir}\n")
                     elif self.last_output_dir:
                         self._append_log(f"Some jobs failed. Last completed output is in: {self.last_output_dir}\n")
-                    elif not payload:
+                    elif not was_successful:
                         self._append_log("Failed. Review the log above.\n")
+                    self.cancel_requested = False
+                    self._update_start_state()
+                    self._update_results_state()
         except queue.Empty:
             pass
         self.root.after(100, self._poll_log_queue)
@@ -495,17 +763,30 @@ class ForJynWorkbenchApp:
         self.running = True
         self.completed_dirs = []
         self.last_output_dir = None
+        self.last_image_output = None
+        self.last_onnx_path = None
+        self.last_review_sheet = None
         self.current_backend_job_id = None
+        self.current_process = None
+        self.cancel_requested = False
+        self.run_started_at = time.monotonic()
+        self._last_cpu_sample = None
+        self._last_heartbeat_at = 0.0
         self.progress.configure(mode="indeterminate")
         self.progress.start(12)
-        self._set_progress_status("Training")
-        self.current_stage.set("Current stage: Training")
-        self.current_job.set("Current job: starting")
-        self.style_progress.set(f"Style progress: 0 of {len(self.style_paths)}")
-        self.output_status.set(f"Output folder: {rel(OUTPUTS_DIR)}")
-        self.open_output_button.configure(state=DISABLED)
+        self._set_progress_status("Running")
+        self.current_stage.set("Stage: Starting")
+        self.current_job.set("Job: starting")
+        self.elapsed_time.set("Elapsed: 00:00:00")
+        self.style_progress.set(f"Style progress: 0/{len(self.style_paths)}")
+        self.process_pid.set("PID: -")
+        self.process_cpu.set("CPU: -")
+        self.process_ram.set("RAM: -")
+        self.onnx_provider.set("ONNX provider: pending")
+        self.output_status.set(f"Output: {rel(OUTPUTS_DIR)}")
         self._set_inputs_state(DISABLED)
         self._update_start_state()
+        self._refresh_run_monitor()
         steps = QUALITY_MODES[self.quality.get()]
         self._append_log(
             "Starting ForJyn jobs...\n"
@@ -530,10 +811,67 @@ class ForJynWorkbenchApp:
         elif "phase: complete" in lower:
             self.log_queue.put(("status", "Done"))
 
+    def cancel_current_job(self):
+        if not self.running or self.current_process is None:
+            return
+        self.cancel_requested = True
+        self._set_progress_status("Cancelling")
+        self.current_stage.set("Stage: Cancelling")
+        self.stop_button.configure(state=DISABLED)
+        self._append_log("Cancellation requested.\n")
+        thread = threading.Thread(target=self._terminate_process_tree, args=(self.current_process,), daemon=True)
+        thread.start()
+
+    def _terminate_process_tree(self, process):
+        if process is None or process.poll() is not None:
+            return
+        if psutil is not None:
+            try:
+                parent = psutil.Process(process.pid)
+                targets = parent.children(recursive=True) + [parent]
+                unique_targets = []
+                seen = set()
+                for target in targets:
+                    if target.pid in seen:
+                        continue
+                    seen.add(target.pid)
+                    unique_targets.append(target)
+                for target in unique_targets:
+                    try:
+                        target.terminate()
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        continue
+                _gone, alive = psutil.wait_procs(unique_targets, timeout=CANCEL_TIMEOUT_SECONDS)
+                if alive:
+                    self.log_queue.put(("log", "Job did not stop in time; forcing process cleanup.\n"))
+                    for target in alive:
+                        try:
+                            target.kill()
+                        except (psutil.NoSuchProcess, psutil.AccessDenied):
+                            continue
+                    psutil.wait_procs(alive, timeout=2)
+                return
+            except psutil.NoSuchProcess:
+                return
+            except Exception as exc:
+                self.log_queue.put(("log", f"Process tree cancellation issue: {exc}\n"))
+        try:
+            process.terminate()
+            process.wait(timeout=CANCEL_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            self.log_queue.put(("log", "Job did not stop in time; forcing process cleanup.\n"))
+            process.kill()
+        except Exception as exc:
+            self.log_queue.put(("log", f"Cancellation issue: {exc}\n"))
+
     def _run_jobs_worker(self):
         steps = QUALITY_MODES[self.quality.get()]
         all_ok = True
+        cancelled = False
         for index, style_path in enumerate(self.style_paths, start=1):
+            if self.cancel_requested:
+                cancelled = True
+                break
             style_name = Path(style_path).stem
             backend_job_id = None
             command = [
@@ -555,23 +893,29 @@ class ForJynWorkbenchApp:
             ]
             self.log_queue.put(("log", f"\nStarting style {index}/{len(self.style_paths)}: {Path(style_path).name}\n"))
             self.log_queue.put(("status", "Training"))
-            self.log_queue.put(("style_progress", f"Style progress: {index} of {len(self.style_paths)}"))
+            self.log_queue.put(("style_progress", f"Style progress: {index}/{len(self.style_paths)}"))
             self.log_queue.put(("current_job", Path(style_path).name))
             try:
                 env = os.environ.copy()
                 env["PYTHONIOENCODING"] = "utf-8"
                 env["PYTHONUTF8"] = "1"
+                env["PYTHONUNBUFFERED"] = "1"
+                creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
                 process = subprocess.Popen(
                     command,
                     cwd=str(ROOT),
                     env=env,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
+                    stdin=subprocess.DEVNULL,
                     text=True,
                     bufsize=1,
                     encoding="utf-8",
                     errors="replace",
+                    creationflags=creationflags,
                 )
+                self.current_process = process
+                self.log_queue.put(("process_pid", process.pid))
                 assert process.stdout is not None
                 suppress_traceback_frames = False
                 for line in process.stdout:
@@ -593,6 +937,15 @@ class ForJynWorkbenchApp:
                     if line.startswith("FORJYN_OUTPUT_DIR="):
                         self.log_queue.put(("output_dir", line.split("=", 1)[1].strip()))
                 returncode = process.wait()
+                if self.current_process is process:
+                    self.current_process = None
+                self.log_queue.put(("process_pid", None))
+                if self.cancel_requested:
+                    cancelled = True
+                    all_ok = False
+                    self.log_queue.put(("status", "Cancelled"))
+                    self.log_queue.put(("log", "Job cancelled by user.\n"))
+                    break
                 if returncode != 0:
                     all_ok = False
                     self.log_queue.put(("status", "Failed"))
@@ -607,15 +960,42 @@ class ForJynWorkbenchApp:
                 else:
                     self.log_queue.put(("log", "Job completed.\n"))
             except Exception as exc:
+                if self.cancel_requested:
+                    cancelled = True
+                    all_ok = False
+                    self.log_queue.put(("status", "Cancelled"))
+                    self.log_queue.put(("log", "Job cancelled by user.\n"))
+                    break
                 all_ok = False
                 self.log_queue.put(("status", "Failed"))
                 self.log_queue.put(("log", f"Job failed: {exc}\n"))
-        self.log_queue.put(("done", all_ok))
+            finally:
+                process = self.current_process
+                if process is not None and process.poll() is not None:
+                    self.current_process = None
+                    self.log_queue.put(("process_pid", None))
+        self.log_queue.put(("done", "cancelled" if cancelled else all_ok))
 
     def open_output(self):
         target = self.last_output_dir or OUTPUTS_DIR
         if target:
-            open_folder(target)
+            open_path(target)
+
+    def open_output_image(self):
+        if self._path_exists(self.last_image_output):
+            open_path(self.last_image_output)
+
+    def open_onnx_folder(self):
+        if self._path_exists(self.last_onnx_path):
+            open_path(Path(self.last_onnx_path).parent)
+
+    def copy_onnx_path(self):
+        if not self.last_onnx_path:
+            return
+        self.root.clipboard_clear()
+        self.root.clipboard_append(str(self.last_onnx_path))
+        self.results_status.set("Results: ONNX path copied")
+        self._append_log("ONNX path copied to clipboard.\n")
 
     def _run_backend_helper(self, args):
         env = os.environ.copy()
@@ -650,10 +1030,12 @@ class ForJynWorkbenchApp:
             sheet_path = ROOT / payload.get("review_sheet", rel(sheet_path))
         except Exception:
             pass
+        self.last_review_sheet = str(sheet_path)
         self._append_log(f"Review sheet created: {rel(sheet_path)}\n")
-        self.output_status.set(f"Review sheet: {rel(sheet_path)}")
+        self._update_results_state()
+        self.results_status.set(f"Results: review sheet created at {rel(sheet_path)}")
         if sheet_path.exists():
-            open_folder(sheet_path)
+            open_path(sheet_path)
 
     def clean_temp_references(self):
         if self.running:
@@ -1018,6 +1400,9 @@ def run_check():
     print(f"DirectMLExecutionProvider available: {info['directml_available']}")
     print("Supported image extensions: " + ", ".join(IMAGE_EXTENSIONS))
     print(f"WebP supported: {info['webp_supported']}")
+    print("Run monitor: available")
+    print("Stop/Cancel: available")
+    print(f"Process metrics: {'psutil' if psutil is not None else 'basic'}")
     if info["errors"]:
         for error in info["errors"]:
             print(f"Warning: {error}")
