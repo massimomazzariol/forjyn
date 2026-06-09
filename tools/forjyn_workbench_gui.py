@@ -159,7 +159,10 @@ def environment_details_text(info):
     providers = ", ".join(info.get("providers") or []) or "none"
     return "\n".join(
         [
+            f"Runtime mode: {info.get('runtime_mode', 'unknown')}",
             info.get("pytorch", "PyTorch: not available"),
+            f"torch-directml available: {info.get('directml_training_available', 'no')}",
+            f"DirectML training device: {info.get('directml_training_device', '-')}",
             f"ONNX Runtime providers: {providers}",
             f"WebP supported: {info.get('webp_supported', 'no')}",
             f"Python: {sys.version.split()[0]}",
@@ -171,6 +174,7 @@ def environment_info():
     info = {
         "workbench": "Ready" if WORKBENCH.exists() else "Not ready",
         "device": "Device: unknown",
+        "runtime_mode": os.environ.get("FORJYN_RUNTIME_MODE", "Auto"),
         "cuda_available": "no",
         "training_device": "CPU only",
         "pytorch": "PyTorch: not available",
@@ -178,6 +182,7 @@ def environment_info():
         "providers": [],
         "directml_available": "no",
         "directml_training_available": "no",
+        "directml_training_device": "-",
         "inference_acceleration": "CPU",
         "webp_supported": "no",
         "errors": [],
@@ -198,11 +203,15 @@ def environment_info():
         info["errors"].append(f"PyTorch environment issue: {exc}")
 
     try:
-        import torch_directml  # noqa: F401
+        import torch_directml
 
         info["directml_training_available"] = "yes"
+        try:
+            info["directml_training_device"] = str(torch_directml.device())
+        except Exception as exc:
+            info["directml_training_device"] = f"unavailable ({exc})"
         if info["training_device"] == "CPU only":
-            info["training_device"] = "DirectML experimental (opt-in)"
+            info["training_device"] = "DirectML experimental"
     except Exception:
         pass
 
@@ -245,6 +254,7 @@ class ForJynWorkbenchApp:
         self.styles_summary = StringVar(value="No style/reference images selected")
         self.quality = StringVar(value="Normal candidate - 800 steps")
         self.training_device = StringVar(value="CPU")
+        self.training_mode_status = StringVar(value="Training: CPU")
         self.quality_description = StringVar(value=QUALITY_DESCRIPTIONS[self.quality.get()])
         self.env_info = environment_info()
         self.system_status = StringVar(value=f"Status: {workbench_status_text(self.env_info)}")
@@ -345,7 +355,7 @@ class ForJynWorkbenchApp:
         self.status_dot = self.status_indicator.create_oval(2, 2, 12, 12, fill="#80868B", outline="")
         self.system_status_label = ttk.Label(status_box, textvariable=self.system_status, style="Ready.TLabel", font=("Segoe UI", 9, "bold"))
         self.system_status_label.grid(row=0, column=1, sticky="w", padx=(0, 16))
-        ttk.Label(status_box, text=training_status_text(self.env_info), style="Warning.TLabel").grid(row=0, column=2, sticky="w", padx=(0, 16))
+        ttk.Label(status_box, textvariable=self.training_mode_status, style="Warning.TLabel").grid(row=0, column=2, sticky="w", padx=(0, 16))
         ttk.Label(status_box, text=f"ONNX apply: {onnx_status_text(self.env_info)}").grid(row=0, column=3, sticky="w", padx=(0, 16))
         ttk.Label(status_box, text=f"Output: {rel(OUTPUTS_DIR)}", style="Muted.TLabel").grid(row=0, column=4, sticky="w", padx=(0, 16))
         self.env_details_button = ttk.Button(status_box, text="Environment details", command=self.toggle_environment_details)
@@ -416,6 +426,7 @@ class ForJynWorkbenchApp:
             width=24,
         )
         self.training_device_menu.grid(row=2, column=1, sticky="w", pady=(8, 0))
+        self.training_device_menu.bind("<<ComboboxSelected>>", self._update_training_device_status)
         ttk.Label(
             quality_box,
             text="Do not use Final quality for many references. First screen them with Draft or Normal.",
@@ -567,7 +578,8 @@ class ForJynWorkbenchApp:
 
     def _write_initial_log(self):
         self._append_log("ForJyn Workbench ready.\n")
-        self._append_log(f"{training_status_text(self.env_info)}\n")
+        self._append_log(f"Runtime: {self.env_info.get('runtime_mode', 'Auto')}\n")
+        self._append_log(f"{self.training_mode_status.get()}\n")
         self._append_log(f"ONNX apply: {onnx_status_text(self.env_info)}\n")
         self._append_log(f"Output: {rel(OUTPUTS_DIR)}\n")
         self._append_log(environment_details_text(self.env_info) + "\n")
@@ -588,6 +600,9 @@ class ForJynWorkbenchApp:
 
     def _update_quality_description(self, _event=None):
         self.quality_description.set(QUALITY_DESCRIPTIONS.get(self.quality.get(), ""))
+
+    def _update_training_device_status(self, _event=None):
+        self.training_mode_status.set(f"Training: {self.training_device.get()}")
 
     def _refresh_style_list(self):
         self.style_list.delete(*self.style_list.get_children())
@@ -1643,9 +1658,11 @@ def run_check():
     print(f"Backend: {'found' if BACKEND.exists() else 'missing'} ({BACKEND})")
     print(f"Workbench: {info['workbench']} ({WORKBENCH})")
     print(info["pytorch"])
+    print(f"Runtime mode: {info['runtime_mode']}")
     print(f"PyTorch CUDA available: {info['cuda_available']}")
     print(f"Training device: {info['training_device']}")
     print(f"DirectML training experimental: {info['directml_training_available']}")
+    print(f"DirectML training device: {info['directml_training_device']}")
     print("ONNX Runtime providers: " + (", ".join(info["providers"]) if info["providers"] else "none"))
     print(f"DirectMLExecutionProvider available: {info['directml_available']}")
     print("Supported image extensions: " + ", ".join(IMAGE_EXTENSIONS))

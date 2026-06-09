@@ -11,6 +11,8 @@ setup_windows.bat
 run_forjyn_workbench.bat
 ```
 
+`setup_windows.bat` creates the stable `.venv` runtime first. If Python 3.12 is available, it also attempts to create `.venv-gpu` for experimental DirectML training. `run_forjyn_workbench.bat` checks the GPU runtime automatically and falls back to `.venv` with a clear console message when DirectML training is unavailable.
+
 Then in the GUI:
 
 1. Choose a content photo.
@@ -150,18 +152,20 @@ This keeps saved references, final candidates, contact sheets, outputs, models, 
 
 ## CPU, GPU, And DirectML
 
-Training defaults to PyTorch CPU. CUDA can still be requested from the backend with a CUDA-capable PyTorch build.
+Training defaults to PyTorch CPU in the stable runtime. CUDA can still be requested from the backend with a CUDA-capable PyTorch build.
 
 DirectML has two separate roles:
 
 - ONNX Runtime DirectML is used for inference/validation and ONNX apply when available, with CPU fallback preserved.
 - PyTorch DirectML training is experimental and opt-in only. It requires `torch-directml` in the active Python environment and must be selected explicitly in the GUI or requested with `--device directml` from the backend.
 
-If the GUI reports CPU only, that is not automatically a bug. Keep CPU as the default unless a local isolated benchmark proves DirectML training is faster and stable for the chosen job size.
+If the GUI reports CPU only, that is not automatically a bug. Keep CPU as the stable fallback unless a local isolated benchmark proves DirectML training is faster and stable for the chosen job size.
 
 Manual setup and test commands for the separate `.venv-gpu` experiment are in [Experimental DirectML Training](GPU_TRAINING_EXPERIMENTAL.md).
 
 ONNX export supports both newer PyTorch builds with `dynamic_shapes` and older compatible builds with legacy `dynamic_axes`. If training completes but export/apply fails, use `recover-job` with the existing checkpoint instead of retraining.
+
+The tested AMD configuration for the experimental path is AMD Radeon RX 6900 XT on Windows 11 with Python 3.12.10, PyTorch `2.4.1+cpu`, `torch-directml 0.2.5.dev240914`, ONNX Runtime DirectML `1.24.4`, and DirectML device `privateuseone:0`. This is not a guarantee for all AMD GPUs.
 
 ## WebP
 

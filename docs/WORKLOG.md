@@ -25,7 +25,8 @@
 - 2026-06-09: ROCm/PyTorch on Windows was evaluated from AMD docs and not installed. AMD documents PyTorch ROCm Windows wheels for Python 3.12 and driver `26.2.2`, but the current Windows PyTorch 7.2.1 support matrix lists `gfx1201`, `gfx1200`, `gfx1100`, and `gfx1101` Radeon hardware, not RX 6900 XT / `gfx1030`. Sources: https://rocm.docs.amd.com/projects/radeon-ryzen/en/latest/docs/install/installryz/windows/install-pytorch.html and https://rocm.docs.amd.com/projects/radeon-ryzen/en/latest/docs/compatibility/compatibilityrad/windows/windows_compatibility.html.
 - 2026-06-09: DirectML training spike was merged to `master` as experimental opt-in documentation and code. A dedicated `.venv-gpu` manual setup guide was added; no generated runtime artifacts are tracked.
 - 2026-06-09: ONNX export compatibility was fixed for the `.venv-gpu` DirectML environment using PyTorch `2.4.1`, whose `torch.onnx.export` does not accept `dynamic_shapes`. ForJyn now detects export keyword support and falls back to legacy `dynamic_axes` while preserving dynamic H/W output. Job `20260609-131315-neon-bloom-1618142090-05` was recovered from its existing checkpoint without retraining.
+- 2026-06-09: ForJyn v0.1.1 preparation finalized dual runtime setup and launcher behavior: `.venv` remains the stable CPU/ONNX DirectML runtime, `.venv-gpu` is created best-effort for experimental DirectML training with Python 3.12, and `run_forjyn_workbench.bat` auto-selects the DirectML runtime when it passes a quick check.
 
 ## Current Next Step
 
-Use legal local content and reference images to train and visually screen a small set of Workbench candidates. Keep CPU as the default training path; use DirectML training only as an experimental opt-in until longer, isolated benchmarks show a meaningful win.
+Use `docs/NEXT_STEPS.md` for future model-quality work. The v0.1.1 workbench/setup path is closed; better ONNX filter production should happen as a separate Model Quality Lab phase.

@@ -13,6 +13,7 @@ ForJyn is not a full Photoshop-like editor and not a cloud service. It does not 
 - Validate and apply ONNX models locally.
 - Create review sheets for candidate screening.
 - Keep DirectML training experimental and opt-in unless a separate benchmark task proves it should change.
+- Keep the Windows launcher automatic: use the experimental DirectML runtime when it is present and healthy, otherwise fall back to the stable CPU runtime.
 - Keep generated artifacts under ignored `workbench/` unless a release process explicitly packages them.
 - Keep CI and local tests lightweight: path checks, CLI smoke checks, generator smoke checks, and repository hygiene only.
 
@@ -41,4 +42,4 @@ CI and tests may redirect that runtime with `FORJYN_WORKBENCH_ROOT` so checks do
 
 ## Release Direction
 
-Release packaging is deferred. When models are good enough to share, release assets should be prepared outside Git history with model cards, attribution, validation results, and known limitations.
+Workbench/setup releases can be tagged from Git. Model packaging is deferred. When models are good enough to share, release assets should be prepared outside Git history with model cards, attribution, validation results, and known limitations.

@@ -2,21 +2,30 @@
 
 DirectML training is an experimental opt-in path for AMD/Windows testing. The stable ForJyn training path remains CPU, and ONNX apply/validation still uses ONNX Runtime DirectML when available in the stable `.venv`.
 
-Do not install these packages into `.venv`. Keep the GPU experiment isolated in `.venv-gpu`.
+`setup_windows.bat` now tries to create both runtimes: stable `.venv` first, then experimental `.venv-gpu` when Python 3.12 is available. Do not install the GPU packages into `.venv`; keep the GPU experiment isolated in `.venv-gpu`.
 
 ## Current Status
 
 - Stable default training: CPU.
 - Experimental training option: DirectML through `torch-directml`.
-- Tested spike environment: Python 3.12, `torch-directml 0.2.5.dev240914`, `torch 2.4.1+cpu`.
+- Tested AMD configuration: Radeon RX 6900 XT on Windows 11.
+- Tested spike environment: Python 3.12.10, `torch-directml 0.2.5.dev240914`, `torch 2.4.1+cpu`.
+- ONNX Runtime DirectML tested version: `1.24.4`.
 - DirectML device name reported by PyTorch: `privateuseone:0`.
 - Known warning: Adam may fall back to CPU for `aten::lerp.Scalar_out`.
 - Speedup is not guaranteed. The spike micro benchmark was too small to justify changing the default.
 - ROCm Windows was evaluated but not integrated for this GPU path.
+- ONNX export falls back to legacy `dynamic_axes` when the active PyTorch version does not support `dynamic_shapes`.
 
 ## Create The Separate Environment
 
-From the repository root:
+The normal setup path is:
+
+```powershell
+.\setup_windows.bat
+```
+
+Manual equivalent from the repository root:
 
 ```powershell
 py -3.12 -m venv .venv-gpu
@@ -30,7 +39,7 @@ Install the non-torch ForJyn runtime dependencies without replacing the `torch-d
 .\.venv-gpu\Scripts\python.exe -m pip install numpy==2.4.6 pillow==12.2.0 onnx==1.21.0 onnxscript==0.7.0 onnxruntime-directml==1.24.4 psutil==7.2.2
 ```
 
-Do not run `setup_windows.bat` for `.venv-gpu`; that script owns the stable `.venv` setup.
+The setup script should not fail the whole install if `.venv-gpu` cannot be created. CPU remains available.
 
 ## Verify DirectML
 
@@ -50,7 +59,13 @@ If `torch_directml` is missing, ForJyn keeps DirectML training hidden in the GUI
 
 ## Run The GUI With DirectML Training
 
-Launch the GUI from the isolated environment:
+The normal launcher auto-selects `.venv-gpu` when it passes a quick DirectML check:
+
+```powershell
+.\run_forjyn_workbench.bat
+```
+
+Manual launch from the isolated environment:
 
 ```powershell
 .\.venv-gpu\Scripts\python.exe tools\forjyn_workbench_gui.py
