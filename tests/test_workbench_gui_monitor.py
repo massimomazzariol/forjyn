@@ -12,7 +12,14 @@ TOOLS = ROOT / "tools"
 if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 
-from forjyn_workbench_gui import ForJynWorkbenchApp, format_elapsed, psutil
+from forjyn_workbench_gui import (
+    ForJynWorkbenchApp,
+    format_cpu_load,
+    format_elapsed,
+    format_process_cores,
+    format_ram_mb,
+    psutil,
+)
 
 
 class WorkbenchGuiMonitorTests(unittest.TestCase):
@@ -20,6 +27,13 @@ class WorkbenchGuiMonitorTests(unittest.TestCase):
         self.assertEqual(format_elapsed(0), "00:00:00")
         self.assertEqual(format_elapsed(65), "00:01:05")
         self.assertEqual(format_elapsed(3661), "01:01:01")
+
+    def test_monitor_metric_formatting_is_human_readable(self):
+        self.assertEqual(format_cpu_load(62.4), "62%")
+        self.assertEqual(format_process_cores(1580.0), "15.8 cores")
+        self.assertEqual(format_ram_mb(1843), "1.8 GB")
+        self.assertEqual(format_cpu_load(None), "-")
+        self.assertEqual(format_process_cores(None), "-")
 
     def test_cancel_terminates_process_tree(self):
         if psutil is None:

@@ -777,6 +777,8 @@ def write_job_outputs(trained, content, job_dir, style_slug, style_name=None, or
     provider_used = apply_result.get("provider", {}).get("provider_used")
     if provider_used:
         progress("ONNX_PROVIDER", provider_used)
+    progress("APPLY_SECONDS", apply_result.get("seconds", ""))
+    progress("PRESERVES_SIZE", "yes" if apply_result.get("preserves_size") else "no")
     progress("ONNX_PATH", final_onnx.resolve() if final_onnx else "")
     progress("IMAGE_OUTPUT", Path(apply_result["output"]).resolve() if Path(apply_result["output"]).is_absolute() else (ROOT / apply_result["output"]).resolve())
     return job_summary

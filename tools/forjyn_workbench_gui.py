@@ -104,8 +104,28 @@ def format_elapsed(seconds):
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
 
+def format_ram_mb(value):
+    if value is None:
+        return "-"
+    if value >= 1024:
+        return f"{value / 1024:.1f} GB"
+    return f"{value:.0f} MB"
+
+
+def format_cpu_load(value):
+    if value is None:
+        return "-"
+    return f"{value:.0f}%"
+
+
+def format_process_cores(value):
+    if value is None:
+        return "-"
+    return f"{value / 100.0:.1f} cores"
+
+
 def workbench_status_text(info):
-    return "Workbench ready" if str(info.get("workbench", "")).lower() == "ready" else "Workbench not ready"
+    return "Ready" if str(info.get("workbench", "")).lower() == "ready" else "Not ready"
 
 
 def training_status_text(info):
@@ -117,8 +137,8 @@ def training_status_text(info):
 
 def onnx_status_text(info):
     if info.get("directml_available") == "yes":
-        return "ONNX apply: GPU acceleration available"
-    return "ONNX apply: CPU only"
+        return "GPU DirectML available"
+    return "CPU only"
 
 
 def environment_details_text(info):
@@ -128,6 +148,7 @@ def environment_details_text(info):
             info.get("pytorch", "PyTorch: not available"),
             f"ONNX Runtime providers: {providers}",
             f"WebP supported: {info.get('webp_supported', 'no')}",
+            f"Python: {sys.version.split()[0]}",
         ]
     )
 
@@ -200,18 +221,27 @@ class ForJynWorkbenchApp:
         self.styles_summary = StringVar(value="No style/reference images selected")
         self.quality = StringVar(value="Normal candidate - 800 steps")
         self.quality_description = StringVar(value=QUALITY_DESCRIPTIONS[self.quality.get()])
-        self.progress_status = StringVar(value="Status: Idle")
-        self.current_job = StringVar(value="Job: idle")
+        self.env_info = environment_info()
+        self.system_status = StringVar(value=f"Status: {workbench_status_text(self.env_info)}")
+        self.progress_status = StringVar(value="State: Idle")
+        self.current_job = StringVar(value="Job ID: -")
+        self.current_style = StringVar(value="Style: -")
         self.current_stage = StringVar(value="Stage: Waiting")
         self.elapsed_time = StringVar(value="Elapsed: 00:00:00")
         self.style_progress = StringVar(value="Style progress: 0/0")
         self.process_pid = StringVar(value="PID: -")
-        self.process_cpu = StringVar(value="CPU: -")
-        self.process_ram = StringVar(value="RAM: -")
-        self.onnx_provider = StringVar(value="ONNX provider: pending")
+        self.cpu_load = StringVar(value="CPU load: -")
+        self.process_cpu = StringVar(value="Process CPU: -")
+        self.process_ram = StringVar(value="RAM process: -")
+        directml_text = "yes" if self.env_info.get("directml_available") == "yes" else "no"
+        self.gpu_status = StringVar(value=f"GPU status: DirectML available {directml_text}; usage unavailable")
+        self.onnx_provider = StringVar(value="ONNX provider: -")
+        self.last_apply_time = StringVar(value="Last ONNX apply: -")
         self.output_status = StringVar(value=f"Output: {rel(OUTPUTS_DIR)}")
+        self.output_image_status = StringVar(value="Output image: -")
+        self.preserve_status = StringVar(value="Preserves size: -")
+        self.quality_status = StringVar(value="Quality status: needs human review")
         self.results_status = StringVar(value="Results: none yet")
-        self.env_info = environment_info()
         self.style_paths = []
         self.completed_dirs = []
         self.last_output_dir = None
@@ -230,6 +260,7 @@ class ForJynWorkbenchApp:
 
         self._configure_style()
         self._build_ui()
+        self._set_run_state(workbench_status_text(self.env_info))
         self._write_initial_log()
         self._update_start_state()
         self._poll_log_queue()
@@ -240,6 +271,11 @@ class ForJynWorkbenchApp:
         self.style.configure("Section.TLabelframe.Label", font=("Segoe UI", 9, "bold"))
         self.style.configure("Accent.TButton", font=("Segoe UI", 10, "bold"))
         self.style.configure("Small.TLabel", font=("Segoe UI", 8))
+        self.style.configure("Ready.TLabel", foreground="#0B6B3A")
+        self.style.configure("Running.TLabel", foreground="#1D5EA8")
+        self.style.configure("Warning.TLabel", foreground="#8A5A00")
+        self.style.configure("Failed.TLabel", foreground="#A32424")
+        self.style.configure("Muted.TLabel", foreground="#586174")
 
     def _build_ui(self):
         self.root.columnconfigure(0, weight=1)
@@ -263,7 +299,8 @@ class ForJynWorkbenchApp:
         self.main_canvas.bind("<Enter>", lambda _event: self.main_canvas.bind_all("<MouseWheel>", self._on_mousewheel))
         self.main_canvas.bind("<Leave>", lambda _event: self.main_canvas.unbind_all("<MouseWheel>"))
         frame.columnconfigure(0, weight=1)
-        frame.rowconfigure(7, weight=1)
+        frame.rowconfigure(4, weight=1)
+        frame.rowconfigure(7, weight=2)
 
         title = ttk.Label(frame, text="ForJyn Workbench", style="Title.TLabel")
         title.grid(row=0, column=0, sticky="w")
@@ -275,18 +312,18 @@ class ForJynWorkbenchApp:
 
         status_box = ttk.LabelFrame(frame, text="System", padding=10)
         status_box.grid(row=2, column=0, sticky="ew", pady=6)
-        status_box.columnconfigure(1, weight=1)
-        status_items = [
-            ("System", workbench_status_text(self.env_info)),
-            ("Training", training_status_text(self.env_info).replace("Training: ", "")),
-            ("ONNX apply", onnx_status_text(self.env_info).replace("ONNX apply: ", "")),
-            ("Output", rel(OUTPUTS_DIR)),
-        ]
-        for index, (label, value) in enumerate(status_items):
-            ttk.Label(status_box, text=f"{label}:", font=("Segoe UI", 9, "bold")).grid(row=index, column=0, sticky="w", padx=(0, 6), pady=2)
-            ttk.Label(status_box, text=value).grid(row=index, column=1, sticky="w", padx=(0, 16), pady=2)
+        for column in range(6):
+            status_box.columnconfigure(column, weight=1 if column == 5 else 0)
+        self.status_indicator = tk.Canvas(status_box, width=14, height=14, highlightthickness=0)
+        self.status_indicator.grid(row=0, column=0, sticky="w", padx=(0, 6))
+        self.status_dot = self.status_indicator.create_oval(2, 2, 12, 12, fill="#80868B", outline="")
+        self.system_status_label = ttk.Label(status_box, textvariable=self.system_status, style="Ready.TLabel", font=("Segoe UI", 9, "bold"))
+        self.system_status_label.grid(row=0, column=1, sticky="w", padx=(0, 16))
+        ttk.Label(status_box, text=training_status_text(self.env_info), style="Warning.TLabel").grid(row=0, column=2, sticky="w", padx=(0, 16))
+        ttk.Label(status_box, text=f"ONNX apply: {onnx_status_text(self.env_info)}").grid(row=0, column=3, sticky="w", padx=(0, 16))
+        ttk.Label(status_box, text=f"Output: {rel(OUTPUTS_DIR)}", style="Muted.TLabel").grid(row=0, column=4, sticky="w", padx=(0, 16))
         self.env_details_button = ttk.Button(status_box, text="Environment details", command=self.toggle_environment_details)
-        self.env_details_button.grid(row=0, column=2, sticky="ne", padx=(12, 0))
+        self.env_details_button.grid(row=0, column=5, sticky="e")
         self.env_details_label = ttk.Label(
             status_box,
             text=environment_details_text(self.env_info),
@@ -312,7 +349,7 @@ class ForJynWorkbenchApp:
         self.style_list = ttk.Treeview(style_box, columns=("file", "folder"), show="headings", height=5)
         self.style_list.heading("file", text="File")
         self.style_list.heading("folder", text="Folder")
-        self.style_list.column("file", width=190, stretch=False)
+        self.style_list.column("file", width=220, stretch=True)
         self.style_list.column("folder", stretch=True)
         self.style_list.grid(row=1, column=0, sticky="nsew", padx=(0, 8))
         style_actions = ttk.Frame(style_box)
@@ -355,7 +392,7 @@ class ForJynWorkbenchApp:
         generate_box.columnconfigure(0, weight=1)
         actions = ttk.Frame(generate_box)
         actions.grid(row=0, column=0, sticky="ew")
-        actions.columnconfigure(5, weight=1)
+        actions.columnconfigure(4, weight=1)
         self.start_button = ttk.Button(actions, text="Start", command=self.start_jobs, style="Accent.TButton")
         self.start_button.grid(row=0, column=0, padx=(0, 8))
         self.stop_button = ttk.Button(actions, text="Stop current job", command=self.cancel_current_job, state=DISABLED)
@@ -364,11 +401,12 @@ class ForJynWorkbenchApp:
         self.clean_temp_button.grid(row=0, column=2, padx=(0, 8))
         self.open_workbench_button = ttk.Button(actions, text="Open workbench folder", command=lambda: open_folder(WORKBENCH))
         self.open_workbench_button.grid(row=0, column=3, padx=(0, 12))
-        ttk.Label(actions, textvariable=self.progress_status).grid(row=0, column=5, sticky="e")
+        self.action_status_label = ttk.Label(actions, textvariable=self.progress_status, style="Muted.TLabel")
+        self.action_status_label.grid(row=0, column=4, sticky="e")
         self.progress = ttk.Progressbar(generate_box, mode="indeterminate")
         self.progress.grid(row=1, column=0, sticky="ew", pady=(10, 0))
 
-        ttk.Label(generate_box, text="Run monitor", font=("Segoe UI", 10, "bold")).grid(row=2, column=0, sticky="w", pady=(10, 4))
+        ttk.Label(generate_box, text="Run Monitor", font=("Segoe UI", 10, "bold")).grid(row=2, column=0, sticky="w", pady=(10, 4))
         monitor = ttk.Frame(generate_box)
         monitor.grid(row=3, column=0, sticky="ew")
         for column in range(3):
@@ -378,18 +416,21 @@ class ForJynWorkbenchApp:
             self.current_stage,
             self.elapsed_time,
             self.current_job,
-            self.style_progress,
+            self.current_style,
             self.process_pid,
+            self.cpu_load,
             self.process_cpu,
             self.process_ram,
+            self.gpu_status,
             self.onnx_provider,
-            self.output_status,
+            self.last_apply_time,
+            self.style_progress,
         ]
         for index, variable in enumerate(monitor_items):
             row = index // 3
             column = index % 3
-            columnspan = 3 if index == len(monitor_items) - 1 else 1
-            ttk.Label(monitor, textvariable=variable).grid(row=row, column=column, columnspan=columnspan, sticky="w", padx=(0, 12), pady=2)
+            ttk.Label(monitor, textvariable=variable).grid(row=row, column=column, sticky="w", padx=(0, 12), pady=2)
+        ttk.Label(monitor, textvariable=self.output_status).grid(row=5, column=0, columnspan=3, sticky="w", padx=(0, 12), pady=2)
 
         ttk.Label(generate_box, text="Results", font=("Segoe UI", 10, "bold")).grid(row=4, column=0, sticky="w", pady=(10, 4))
         results = ttk.Frame(generate_box)
@@ -404,7 +445,16 @@ class ForJynWorkbenchApp:
         self.review_sheet_button.grid(row=0, column=3, padx=(0, 8), pady=2)
         self.copy_onnx_button = ttk.Button(results, text="Copy ONNX path", command=self.copy_onnx_path, state=DISABLED)
         self.copy_onnx_button.grid(row=0, column=4, padx=(0, 8), pady=2)
-        ttk.Label(generate_box, textvariable=self.results_status, foreground="#586174").grid(row=6, column=0, sticky="w", pady=(4, 0))
+        results_details = ttk.Frame(generate_box)
+        results_details.grid(row=6, column=0, sticky="ew", pady=(4, 0))
+        for column in range(2):
+            results_details.columnconfigure(column, weight=1)
+        ttk.Label(results_details, textvariable=self.output_image_status, style="Muted.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 12), pady=1)
+        ttk.Label(results_details, textvariable=self.onnx_provider, style="Muted.TLabel").grid(row=0, column=1, sticky="w", pady=1)
+        ttk.Label(results_details, textvariable=self.last_apply_time, style="Muted.TLabel").grid(row=1, column=0, sticky="w", padx=(0, 12), pady=1)
+        ttk.Label(results_details, textvariable=self.preserve_status, style="Muted.TLabel").grid(row=1, column=1, sticky="w", pady=1)
+        ttk.Label(results_details, textvariable=self.quality_status, style="Warning.TLabel").grid(row=2, column=0, columnspan=2, sticky="w", pady=1)
+        ttk.Label(generate_box, textvariable=self.results_status, style="Muted.TLabel").grid(row=7, column=0, sticky="w", pady=(4, 0))
 
         log_box = ttk.LabelFrame(frame, text="Log", padding=8)
         log_box.grid(row=7, column=0, sticky="nsew", pady=(8, 0))
@@ -424,10 +474,33 @@ class ForJynWorkbenchApp:
         delta = -1 if event.delta > 0 else 1
         self.main_canvas.yview_scroll(delta, "units")
 
+    def _state_style(self, state):
+        normalized = state.lower()
+        if normalized in {"ready", "completed"}:
+            return "Ready.TLabel", "#188038"
+        if normalized in {"running", "cancelling"}:
+            return "Running.TLabel", "#1D5EA8"
+        if normalized in {"cancelled", "warning", "cpu only"}:
+            return "Warning.TLabel", "#E37400"
+        if normalized in {"failed", "not ready"}:
+            return "Failed.TLabel", "#C5221F"
+        return "Muted.TLabel", "#80868B"
+
+    def _set_run_state(self, state):
+        label_style, color = self._state_style(state)
+        self.system_status.set(f"Status: {state}")
+        self.progress_status.set(f"State: {state}")
+        if hasattr(self, "system_status_label"):
+            self.system_status_label.configure(style=label_style)
+        if hasattr(self, "action_status_label"):
+            self.action_status_label.configure(style=label_style)
+        if hasattr(self, "status_indicator"):
+            self.status_indicator.itemconfigure(self.status_dot, fill=color)
+
     def toggle_environment_details(self):
         self._details_visible = not self._details_visible
         if self._details_visible:
-            self.env_details_label.grid(row=4, column=0, columnspan=3, sticky="w", pady=(8, 0))
+            self.env_details_label.grid(row=1, column=0, columnspan=6, sticky="w", pady=(8, 0))
             self.env_details_button.configure(text="Hide details")
         else:
             self.env_details_label.grid_remove()
@@ -436,7 +509,7 @@ class ForJynWorkbenchApp:
     def _write_initial_log(self):
         self._append_log("ForJyn Workbench ready.\n")
         self._append_log(f"{training_status_text(self.env_info)}\n")
-        self._append_log(f"{onnx_status_text(self.env_info)}\n")
+        self._append_log(f"ONNX apply: {onnx_status_text(self.env_info)}\n")
         self._append_log(f"Output: {rel(OUTPUTS_DIR)}\n")
         self._append_log(environment_details_text(self.env_info) + "\n")
         for error in self.env_info["errors"]:
@@ -554,11 +627,12 @@ class ForJynWorkbenchApp:
         process = self.current_process
         if process is None or process.poll() is not None:
             self._last_cpu_sample = None
-            return None, None, None
+            return None, None, None, None
         pid = process.pid
         if psutil is None:
-            return pid, None, None
+            return pid, None, None, None
         try:
+            system_cpu = psutil.cpu_percent(interval=None)
             parent = psutil.Process(pid)
             processes = [parent] + parent.children(recursive=True)
             total_cpu_seconds = 0.0
@@ -578,28 +652,30 @@ class ForJynWorkbenchApp:
                 elapsed = max(0.001, now - previous_time)
                 cpu_percent = max(0.0, (total_cpu_seconds - previous_cpu) / elapsed * 100.0)
             self._last_cpu_sample = (now, total_cpu_seconds)
-            return pid, cpu_percent, total_rss / (1024 * 1024)
+            return pid, system_cpu, cpu_percent, total_rss / (1024 * 1024)
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             self._last_cpu_sample = None
-            return pid, None, None
+            return pid, None, None, None
 
     def _refresh_run_monitor(self):
         if not self.running:
             return
         elapsed = self._update_elapsed_status()
-        pid, cpu_percent, ram_mb = self._collect_process_metrics()
+        pid, system_cpu, process_cpu, ram_mb = self._collect_process_metrics()
         self.process_pid.set(f"PID: {pid}" if pid else "PID: -")
-        cpu_text = "-" if cpu_percent is None else f"{cpu_percent:.0f}%"
-        ram_text = "-" if ram_mb is None else f"{ram_mb:.0f} MB"
-        self.process_cpu.set(f"CPU: {cpu_text}")
-        self.process_ram.set(f"RAM: {ram_text}")
+        cpu_load_text = format_cpu_load(system_cpu)
+        process_cpu_text = format_process_cores(process_cpu)
+        ram_text = format_ram_mb(ram_mb)
+        self.cpu_load.set(f"CPU load: {cpu_load_text}")
+        self.process_cpu.set(f"Process CPU: {process_cpu_text}")
+        self.process_ram.set(f"RAM process: {ram_text}")
 
         now = time.monotonic()
         if pid and now - self._last_heartbeat_at >= HEARTBEAT_INTERVAL_SECONDS:
             self._last_heartbeat_at = now
             stage = self.current_stage.get().replace("Stage: ", "").lower()
             self._append_log(
-                f"Still running | elapsed {elapsed} | PID {pid} | CPU {cpu_text} | RAM {ram_text} | stage: {stage}\n"
+                f"Still running | elapsed {elapsed} | CPU load {cpu_load_text} | process {process_cpu_text} | RAM {ram_text} | stage {stage}\n"
             )
         self.root.after(1000, self._refresh_run_monitor)
 
@@ -627,7 +703,7 @@ class ForJynWorkbenchApp:
         return ()
 
     def _set_progress_status(self, value):
-        self.progress_status.set(f"Status: {value}")
+        self._set_run_state(value)
 
     def _stage_label(self, stage):
         return {
@@ -657,9 +733,9 @@ class ForJynWorkbenchApp:
             self.log_queue.put(("log", value + "\n"))
         elif key == "JOB_ID":
             self.current_backend_job_id = value
-            self.log_queue.put(("current_job", value))
+            self.log_queue.put(("current_job", f"Job ID: {value}"))
         elif key == "STYLE":
-            self.log_queue.put(("current_job", value))
+            self.log_queue.put(("current_style", f"Style: {value}"))
         elif key == "OUTPUT_DIR":
             self.log_queue.put(("output_dir", value))
         elif key == "ONNX_PATH":
@@ -668,6 +744,10 @@ class ForJynWorkbenchApp:
             self.log_queue.put(("image_output", value))
         elif key in {"ONNX_PROVIDER", "PROVIDER"}:
             self.log_queue.put(("onnx_provider", value))
+        elif key == "APPLY_SECONDS":
+            self.log_queue.put(("apply_seconds", value))
+        elif key == "PRESERVES_SIZE":
+            self.log_queue.put(("preserves_size", value))
         elif key == "PROGRESS":
             pass
         return True
@@ -693,7 +773,9 @@ class ForJynWorkbenchApp:
                         self._set_progress_status("Running")
                     self.current_stage.set(f"Stage: {payload}")
                 elif kind == "current_job":
-                    self.current_job.set(f"Job: {payload}")
+                    self.current_job.set(payload)
+                elif kind == "current_style":
+                    self.current_style.set(payload)
                 elif kind == "style_progress":
                     self.style_progress.set(payload)
                 elif kind == "runtime_output":
@@ -704,10 +786,19 @@ class ForJynWorkbenchApp:
                     self._update_results_state()
                 elif kind == "image_output":
                     self.last_image_output = payload
+                    self.output_image_status.set(f"Output image: {payload}")
                     self._append_log(f"Image output: {payload}\n")
                     self._update_results_state()
                 elif kind == "onnx_provider":
                     self.onnx_provider.set(f"ONNX provider: {payload or 'unknown'}")
+                    self.gpu_status.set(
+                        f"GPU status: DirectML available {self.env_info.get('directml_available', 'no')}; usage unavailable"
+                    )
+                elif kind == "apply_seconds":
+                    self.last_apply_time.set(f"Last ONNX apply: {payload}s" if payload else "Last ONNX apply: -")
+                elif kind == "preserves_size":
+                    value = "yes" if str(payload).strip().lower() in {"1", "true", "yes"} else "no"
+                    self.preserve_status.set(f"Preserves size: {value}")
                 elif kind == "process_pid":
                     self.process_pid.set(f"PID: {payload}" if payload else "PID: -")
                 elif kind == "done":
@@ -718,8 +809,9 @@ class ForJynWorkbenchApp:
                     self.progress.stop()
                     self._set_inputs_state(NORMAL)
                     self.process_pid.set("PID: -")
-                    self.process_cpu.set("CPU: -")
-                    self.process_ram.set("RAM: -")
+                    self.cpu_load.set("CPU load: -")
+                    self.process_cpu.set("Process CPU: -")
+                    self.process_ram.set("RAM process: -")
                     self._update_elapsed_status()
                     final_status = "Cancelled" if was_cancelled else "Completed" if was_successful else "Failed"
                     self._set_progress_status(final_status)
@@ -776,14 +868,22 @@ class ForJynWorkbenchApp:
         self.progress.start(12)
         self._set_progress_status("Running")
         self.current_stage.set("Stage: Starting")
-        self.current_job.set("Job: starting")
+        self.current_job.set("Job ID: starting")
+        self.current_style.set("Style: -")
         self.elapsed_time.set("Elapsed: 00:00:00")
         self.style_progress.set(f"Style progress: 0/{len(self.style_paths)}")
         self.process_pid.set("PID: -")
-        self.process_cpu.set("CPU: -")
-        self.process_ram.set("RAM: -")
-        self.onnx_provider.set("ONNX provider: pending")
+        self.cpu_load.set("CPU load: -")
+        self.process_cpu.set("Process CPU: -")
+        self.process_ram.set("RAM process: -")
+        directml_text = "yes" if self.env_info.get("directml_available") == "yes" else "no"
+        self.gpu_status.set(f"GPU status: DirectML available {directml_text}; usage unavailable")
+        self.onnx_provider.set("ONNX provider: -")
+        self.last_apply_time.set("Last ONNX apply: -")
         self.output_status.set(f"Output: {rel(OUTPUTS_DIR)}")
+        self.output_image_status.set("Output image: -")
+        self.preserve_status.set("Preserves size: -")
+        self.quality_status.set("Quality status: needs human review")
         self._set_inputs_state(DISABLED)
         self._update_start_state()
         self._refresh_run_monitor()
@@ -894,7 +994,7 @@ class ForJynWorkbenchApp:
             self.log_queue.put(("log", f"\nStarting style {index}/{len(self.style_paths)}: {Path(style_path).name}\n"))
             self.log_queue.put(("status", "Training"))
             self.log_queue.put(("style_progress", f"Style progress: {index}/{len(self.style_paths)}"))
-            self.log_queue.put(("current_job", Path(style_path).name))
+            self.log_queue.put(("current_style", f"Style: {Path(style_path).name}"))
             try:
                 env = os.environ.copy()
                 env["PYTHONIOENCODING"] = "utf-8"
@@ -1073,6 +1173,12 @@ class ReferenceGeneratorWindow:
         self.result_queue = queue.Queue()
         self.closed = False
         self.busy = False
+        self.generate_started_at = None
+        self._last_generation_heartbeat_at = 0.0
+        self.reference_state = StringVar(value="State: Ready")
+        self.reference_elapsed = StringVar(value="Elapsed: 00:00:00")
+        self.reference_cpu_load = StringVar(value="CPU load: -")
+        self.reference_ram = StringVar(value="RAM: -")
 
         self.window = tk.Toplevel(parent)
         self.window.title("ForJyn Reference Generator")
@@ -1163,7 +1269,20 @@ class ReferenceGeneratorWindow:
         self.save_all_button.grid(row=button_row + 2, column=0, columnspan=3, sticky="ew", pady=3)
         self.close_button = ttk.Button(controls, text="Close", command=self.close)
         self.close_button.grid(row=button_row + 3, column=0, columnspan=3, sticky="ew", pady=(12, 0))
-        ttk.Label(controls, textvariable=self.status, wraplength=290).grid(row=button_row + 4, column=0, columnspan=3, sticky="w", pady=(12, 0))
+        reference_monitor = ttk.Frame(controls)
+        reference_monitor.grid(row=button_row + 4, column=0, columnspan=3, sticky="ew", pady=(12, 0))
+        reference_monitor.columnconfigure(1, weight=1)
+        self.reference_indicator = tk.Canvas(reference_monitor, width=14, height=14, highlightthickness=0)
+        self.reference_indicator.grid(row=0, column=0, sticky="w", padx=(0, 6))
+        self.reference_dot = self.reference_indicator.create_oval(2, 2, 12, 12, fill="#80868B", outline="")
+        ttk.Label(reference_monitor, textvariable=self.reference_state, style="Muted.TLabel").grid(row=0, column=1, sticky="w")
+        self.reference_progress = ttk.Progressbar(reference_monitor, mode="indeterminate")
+        self.reference_progress.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(6, 2))
+        self.reference_progress.grid_remove()
+        ttk.Label(reference_monitor, textvariable=self.reference_elapsed, style="Muted.TLabel").grid(row=2, column=0, columnspan=2, sticky="w")
+        ttk.Label(reference_monitor, textvariable=self.reference_cpu_load, style="Muted.TLabel").grid(row=3, column=0, columnspan=2, sticky="w")
+        ttk.Label(reference_monitor, textvariable=self.reference_ram, style="Muted.TLabel").grid(row=4, column=0, columnspan=2, sticky="w")
+        ttk.Label(controls, textvariable=self.status, wraplength=290).grid(row=button_row + 5, column=0, columnspan=3, sticky="w", pady=(12, 0))
 
         ttk.Label(preview_box, text="Generated variations", font=("Segoe UI", 11, "bold")).grid(row=0, column=0, sticky="w", pady=(0, 8))
         self.preview_frame = ttk.Frame(preview_box)
@@ -1230,7 +1349,49 @@ class ReferenceGeneratorWindow:
         self.preset_menu.configure(state=readonly_state)
         for widget in self.slider_widgets:
             widget.configure(state=state)
+        if busy:
+            self.reference_progress.grid()
+            self.reference_progress.start(12)
+            self._set_reference_state("Generating references")
+        else:
+            self.reference_progress.stop()
+            self.reference_progress.configure(value=0)
+            self.reference_progress.grid_remove()
         self._update_save_state()
+
+    def _set_reference_state(self, state):
+        self.reference_state.set(f"State: {state}")
+        color = "#1D5EA8" if state.lower().startswith("generating") else "#188038" if state == "Ready" else "#80868B"
+        if "failed" in state.lower():
+            color = "#C5221F"
+        if hasattr(self, "reference_indicator"):
+            self.reference_indicator.itemconfigure(self.reference_dot, fill=color)
+
+    def _reference_metrics(self):
+        if psutil is None:
+            return None, None
+        try:
+            cpu = psutil.cpu_percent(interval=None)
+            ram_mb = psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
+            return cpu, ram_mb
+        except Exception:
+            return None, None
+
+    def _refresh_reference_monitor(self):
+        if self.closed or not self.busy:
+            return
+        elapsed = format_elapsed(time.monotonic() - self.generate_started_at) if self.generate_started_at else "00:00:00"
+        cpu, ram_mb = self._reference_metrics()
+        cpu_text = format_cpu_load(cpu)
+        ram_text = format_ram_mb(ram_mb)
+        self.reference_elapsed.set(f"Elapsed: {elapsed}")
+        self.reference_cpu_load.set(f"CPU load: {cpu_text}")
+        self.reference_ram.set(f"RAM: {ram_text}")
+        now = time.monotonic()
+        if now - self._last_generation_heartbeat_at >= HEARTBEAT_INTERVAL_SECONDS:
+            self._last_generation_heartbeat_at = now
+            self.log_callback(f"Generating references | elapsed {elapsed} | CPU load {cpu_text} | RAM {ram_text}\n")
+        self.window.after(1000, self._refresh_reference_monitor)
 
     def _update_save_state(self):
         if self.busy or not self.generated_paths:
@@ -1247,13 +1408,21 @@ class ReferenceGeneratorWindow:
             messagebox.showerror("Invalid generator settings", f"Check count, size, and seed values.\n\n{exc}")
             return
         self._set_busy(True)
-        self.status.set("Generating variations...")
+        self.generate_started_at = time.monotonic()
+        self._last_generation_heartbeat_at = self.generate_started_at
+        self.reference_elapsed.set("Elapsed: 00:00:00")
+        self.reference_cpu_load.set("CPU load: -")
+        self.reference_ram.set("RAM: -")
+        self.status.set("Generating references...")
         self.selection_status.set("Generating...")
         self.generated_paths = []
         self.selected_path = None
         self._render_previews([])
+        self.selection_status.set("Generating...")
+        self.log_callback(f"Generating references: {params['preset']} x{params['count']}\n")
         thread = threading.Thread(target=self._generate_worker, args=(params,), daemon=True)
         thread.start()
+        self._refresh_reference_monitor()
         self.window.after(100, self._poll_results)
 
     def _generate_worker(self, params):
@@ -1275,19 +1444,26 @@ class ReferenceGeneratorWindow:
                     self._render_previews(self.generated_paths)
                     retry_total = sum(int(item.get("retry_count", 0)) for item in payload.get("quality", []))
                     quality_failures = sum(1 for item in payload.get("quality", []) if not item.get("final_quality_pass"))
+                    elapsed = format_elapsed(time.monotonic() - self.generate_started_at) if self.generate_started_at else "00:00:00"
+                    cpu, ram_mb = self._reference_metrics()
+                    self.reference_elapsed.set(f"Elapsed: {elapsed}")
+                    self.reference_cpu_load.set(f"CPU load: {format_cpu_load(cpu)}")
+                    self.reference_ram.set(f"RAM: {format_ram_mb(ram_mb)}")
                     self.status.set(f"Generated {len(self.generated_paths)} variations. Contact sheet: {rel(payload['contact_sheet'])}")
                     if self.selected_path:
                         self.selection_status.set(f"Selected: {Path(self.selected_path).name}")
-                    self.log_callback(f"Generated reference variations: {rel(payload['temp_dir'])}\n")
+                    self.log_callback(f"Generated reference variations in {elapsed}: {rel(payload['temp_dir'])}\n")
                     if retry_total or quality_failures:
                         self.log_callback(f"Reference quality guard: retries {retry_total}, kept after failed checks {quality_failures}.\n")
                     self._set_busy(False)
+                    self._set_reference_state("Ready")
                 elif kind == "error":
                     self.status.set(f"Generation failed: {payload}")
                     self.selection_status.set("Generation failed")
                     self.log_callback(f"Reference generation failed: {payload}\n")
                     messagebox.showerror("Reference generation failed", str(payload))
                     self._set_busy(False)
+                    self._set_reference_state("Failed")
         except queue.Empty:
             pass
         if self.busy:
@@ -1403,6 +1579,10 @@ def run_check():
     print("Run monitor: available")
     print("Stop/Cancel: available")
     print(f"Process metrics: {'psutil' if psutil is not None else 'basic'}")
+    print("CPU load metric: available" if psutil is not None else "CPU load metric: unavailable")
+    print("Process CPU units: cores")
+    print("GPU usage: unavailable")
+    print("Reference generation feedback: available")
     if info["errors"]:
         for error in info["errors"]:
             print(f"Warning: {error}")

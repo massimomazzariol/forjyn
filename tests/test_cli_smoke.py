@@ -74,6 +74,9 @@ class CliSmokeTests(unittest.TestCase):
         self.assertIn("Workbench:", completed.stdout)
         self.assertIn("Run monitor: available", completed.stdout)
         self.assertIn("Stop/Cancel: available", completed.stdout)
+        self.assertIn("CPU load metric:", completed.stdout)
+        self.assertIn("Process CPU units: cores", completed.stdout)
+        self.assertIn("Reference generation feedback: available", completed.stdout)
 
 
 if __name__ == "__main__":
