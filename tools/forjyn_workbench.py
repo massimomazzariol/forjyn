@@ -53,6 +53,7 @@ VALIDATION_SHAPES = [
     (1, 3, 1091, 1279),
 ]
 ORT_PROVIDER_CHOICES = ["auto", "cpu", "directml"]
+TRAINING_DEVICE_CHOICES = ["auto", "cpu", "cuda", "directml"]
 DIRECTML_PROVIDER_NAMES = ["DmlExecutionProvider", "DirectMLExecutionProvider"]
 
 GUIDES = {
@@ -77,6 +78,14 @@ def rel(path):
 
 def webp_supported():
     return bool(features.check("webp"))
+
+
+def torch_directml_available():
+    try:
+        import torch_directml  # noqa: F401
+    except Exception:
+        return False
+    return True
 
 
 def ensure_supported_image(path, label):
@@ -1005,6 +1014,7 @@ def recover_job(args):
 
 def check_acceleration(_args):
     print("ForJyn acceleration check")
+    directml_training = torch_directml_available()
     try:
         import torch
 
@@ -1013,12 +1023,18 @@ def check_acceleration(_args):
         print(f"PyTorch CUDA available: {'yes' if cuda_available else 'no'}")
         if cuda_available:
             print(f"Training device: CUDA GPU ({torch.cuda.get_device_name(0)})")
+        elif directml_training:
+            print("Training device: DirectML experimental available (opt-in)")
         else:
             print("Training device: CPU only")
     except Exception as exc:
         print(f"PyTorch: not available / environment issue: {exc}")
         print("PyTorch CUDA available: no")
-        print("Training device: CPU only")
+        if directml_training:
+            print("Training device: DirectML experimental available (opt-in)")
+        else:
+            print("Training device: CPU only")
+    print(f"PyTorch DirectML training available: {'yes' if directml_training else 'no'}")
     try:
         import onnxruntime as ort
 
@@ -1030,7 +1046,7 @@ def check_acceleration(_args):
         print("DirectMLExecutionProvider available: no")
     print("Supported image extensions: " + ", ".join(sorted(IMAGE_EXTENSIONS)))
     print(f"WebP supported: {'yes' if webp_supported() else 'no'}")
-    print("Note: Training currently uses PyTorch CPU/CUDA only. DirectML may be evaluated later only for ONNX inference acceleration.")
+    print("Note: Training defaults to CPU. DirectML training is experimental and must be requested with --device directml.")
 
 
 def benchmark_provider(onnx_path, tensor, provider_mode, runs):
@@ -1261,7 +1277,7 @@ def build_parser():
         command.add_argument("--image-size", type=int, default=384)
         command.add_argument("--batch-size", type=int, default=1)
         command.add_argument("--style-size", type=int, default=512)
-        command.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
+        command.add_argument("--device", choices=TRAINING_DEVICE_CHOICES, default="cpu")
         command.add_argument("--allow-synthetic-fallback", action="store_true")
         command.add_argument("--seed", type=int, default=20260602)
 

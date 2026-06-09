@@ -19,6 +19,8 @@ from forjyn_workbench_gui import (
     format_process_cores,
     format_ram_mb,
     psutil,
+    training_device_options,
+    training_device_value,
 )
 
 
@@ -34,6 +36,16 @@ class WorkbenchGuiMonitorTests(unittest.TestCase):
         self.assertEqual(format_ram_mb(1843), "1843 MB")
         self.assertEqual(format_cpu_load(None), "-")
         self.assertEqual(format_process_cores(None), "-")
+
+    def test_training_device_options_are_explicit(self):
+        self.assertEqual(training_device_options({"directml_training_available": "no"}), ["CPU"])
+        self.assertEqual(
+            training_device_options({"directml_training_available": "yes"}),
+            ["CPU", "DirectML experimental"],
+        )
+        self.assertEqual(training_device_value("CPU"), "cpu")
+        self.assertEqual(training_device_value("DirectML experimental"), "directml")
+        self.assertEqual(training_device_value("unknown"), "cpu")
 
     def test_cancel_terminates_process_tree(self):
         if psutil is None:
