@@ -68,6 +68,10 @@ QUALITY_DESCRIPTIONS = {
     "Final quality - 2000 steps": "Slow. Use only for selected winners.",
 }
 
+TRAINING_DEVICE_VALUES = {
+    "CPU": "cpu",
+    "DirectML experimental": "directml",
+}
 IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"]
 PERCENT_LINE_RE = re.compile(r"^\s*\d+(?:\.\d+)?%\s*$")
 HEARTBEAT_INTERVAL_SECONDS = 60
@@ -134,6 +138,17 @@ def training_status_text(info):
     return f"Training: {training}"
 
 
+def training_device_options(info):
+    options = ["CPU"]
+    if info.get("directml_training_available") == "yes":
+        options.append("DirectML experimental")
+    return options
+
+
+def training_device_value(label):
+    return TRAINING_DEVICE_VALUES.get(label, "cpu")
+
+
 def onnx_status_text(info):
     if info.get("directml_available") == "yes":
         return "DirectML ready"
@@ -162,6 +177,7 @@ def environment_info():
         "onnxruntime": "ONNX Runtime: not available",
         "providers": [],
         "directml_available": "no",
+        "directml_training_available": "no",
         "inference_acceleration": "CPU",
         "webp_supported": "no",
         "errors": [],
@@ -180,6 +196,15 @@ def environment_info():
     except Exception as exc:
         info["device"] = "Device: CPU only"
         info["errors"].append(f"PyTorch environment issue: {exc}")
+
+    try:
+        import torch_directml  # noqa: F401
+
+        info["directml_training_available"] = "yes"
+        if info["training_device"] == "CPU only":
+            info["training_device"] = "DirectML experimental (opt-in)"
+    except Exception:
+        pass
 
     try:
         import onnxruntime as ort
@@ -219,6 +244,7 @@ class ForJynWorkbenchApp:
         self.content_label = StringVar(value="No content photo selected")
         self.styles_summary = StringVar(value="No style/reference images selected")
         self.quality = StringVar(value="Normal candidate - 800 steps")
+        self.training_device = StringVar(value="CPU")
         self.quality_description = StringVar(value=QUALITY_DESCRIPTIONS[self.quality.get()])
         self.env_info = environment_info()
         self.system_status = StringVar(value=f"Status: {workbench_status_text(self.env_info)}")
@@ -381,11 +407,20 @@ class ForJynWorkbenchApp:
             quality_box,
             textvariable=self.quality_description,
         ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        ttk.Label(quality_box, text="Training device").grid(row=2, column=0, sticky="w", padx=(0, 8), pady=(8, 0))
+        self.training_device_menu = ttk.Combobox(
+            quality_box,
+            textvariable=self.training_device,
+            values=training_device_options(self.env_info),
+            state="readonly",
+            width=24,
+        )
+        self.training_device_menu.grid(row=2, column=1, sticky="w", pady=(8, 0))
         ttk.Label(
             quality_box,
             text="Do not use Final quality for many references. First screen them with Draft or Normal.",
             foreground="#7A4A00",
-        ).grid(row=2, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        ).grid(row=3, column=0, columnspan=2, sticky="w", pady=(4, 0))
 
         generate_box = ttk.LabelFrame(frame, text="Step 4 - Generate", padding=10)
         generate_box.grid(row=6, column=0, sticky="ew", pady=6)
@@ -1029,7 +1064,7 @@ class ForJynWorkbenchApp:
                 "--output-root",
                 str(OUTPUTS_DIR),
                 "--device",
-                "auto",
+                training_device_value(self.training_device.get()),
             ]
             self.log_queue.put(("log", f"\nStarting style {index}/{len(self.style_paths)}: {Path(style_path).name}\n"))
             self.log_queue.put(("status", "Training"))
@@ -1610,6 +1645,7 @@ def run_check():
     print(info["pytorch"])
     print(f"PyTorch CUDA available: {info['cuda_available']}")
     print(f"Training device: {info['training_device']}")
+    print(f"DirectML training experimental: {info['directml_training_available']}")
     print("ONNX Runtime providers: " + (", ".join(info["providers"]) if info["providers"] else "none"))
     print(f"DirectMLExecutionProvider available: {info['directml_available']}")
     print("Supported image extensions: " + ", ".join(IMAGE_EXTENSIONS))

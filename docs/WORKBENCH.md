@@ -150,9 +150,14 @@ This keeps saved references, final candidates, contact sheets, outputs, models, 
 
 ## CPU, GPU, And DirectML
 
-Training uses PyTorch CPU or CUDA, depending on the installed PyTorch build and local hardware. If the GUI reports CPU only, that is not automatically a bug.
+Training defaults to PyTorch CPU. CUDA can still be requested from the backend with a CUDA-capable PyTorch build.
 
-DirectML is optional and applies only to ONNX Runtime inference/validation and ONNX apply in this workbench. If DirectML is missing, incompatible, or slower on a local machine, ForJyn keeps CPU fallback available. Training remains PyTorch CPU/CUDA.
+DirectML has two separate roles:
+
+- ONNX Runtime DirectML is used for inference/validation and ONNX apply when available, with CPU fallback preserved.
+- PyTorch DirectML training is experimental and opt-in only. It requires `torch-directml` in the active Python environment and must be selected explicitly in the GUI or requested with `--device directml` from the backend.
+
+If the GUI reports CPU only, that is not automatically a bug. Keep CPU as the default unless a local isolated benchmark proves DirectML training is faster and stable for the chosen job size.
 
 ## WebP
 
@@ -176,7 +181,7 @@ Training completed but export failed: use `recover-job` with the existing model 
 .\.venv\Scripts\python tools\forjyn_workbench.py recover-job --model-dir "workbench\_runtime\models\YYYYMMDD-HHMMSS-style-name" --content "C:\path\content.jpg" --output-dir "workbench\outputs\YYYYMMDD-HHMMSS-style-name"
 ```
 
-CPU only: install a CUDA-capable PyTorch build if you expect GPU training and your machine supports it. DirectML availability does not accelerate PyTorch training here.
+CPU only: install a CUDA-capable PyTorch build if you expect CUDA training and your machine supports it. DirectML training appears only when `torch-directml` is installed in the active environment, and it remains experimental.
 
 WebP unsupported: convert the file to JPG or PNG.
 

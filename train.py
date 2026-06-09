@@ -13,6 +13,22 @@ import utils
 from model import TransformerNet, VGG16
 
 
+def resolve_training_device(requested):
+    if requested == "directml":
+        try:
+            import torch_directml
+        except Exception as exc:
+            raise RuntimeError(f"DirectML training requested but torch-directml is not available: {exc}") from exc
+        return torch_directml.device()
+    if requested == "cuda":
+        if not torch.cuda.is_available():
+            raise RuntimeError("CUDA requested but unavailable")
+        return torch.device("cuda")
+    if requested == "auto":
+        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    return torch.device("cpu")
+
+
 def train(device, args):
     np.random.seed(0)
     torch.manual_seed(0)
@@ -123,7 +139,13 @@ def parse_args():
     parser.add_argument("--max-steps", type=int, default=0, help="maximum optimizer steps; 0 means run full epochs")
     parser.add_argument("--num-workers", type=int, default=0, help="DataLoader worker processes")
     parser.add_argument("--save-name", type=str, default=None, help="checkpoint filename to write inside --save-model")
-    parser.add_argument("--device", type=str, default="auto", choices=["auto", "cpu", "cuda"], help="training device")
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="cpu",
+        choices=["auto", "cpu", "cuda", "directml"],
+        help="training device; DirectML is experimental and opt-in",
+    )
     parser.add_argument(
         "--style-size",
         type=int,
@@ -149,19 +171,18 @@ def parse_args():
 
 def main():
     args = parse_args()
-    if args.device == "cuda" and not torch.cuda.is_available():
-        print("CUDA requested but unavailable")
+    try:
+        device = resolve_training_device(args.device)
+    except RuntimeError as exc:
+        print(exc)
         sys.exit(1)
-    if args.device == "cpu":
-        device = torch.device("cpu")
-    else:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     try:
         os.makedirs(args.save_model, exist_ok=True)
     except OSError as e:
         print(e)
         sys.exit(1)
 
+    print(f"Training device: {args.device} ({device})", flush=True)
     train(device, args)
 
 
