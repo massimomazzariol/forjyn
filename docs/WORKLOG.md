@@ -23,6 +23,7 @@
 - 2026-06-09: Experimental DirectML training was added as explicit opt-in only: CLI accepts `--device directml`, GUI shows/selects DirectML training only when `torch_directml` is importable, and CPU remains the default. ForJyn micro training passed on DirectML, but Adam emitted a DML CPU fallback warning for `aten::lerp.Scalar_out`.
 - 2026-06-09: Micro benchmark, cache warm, synthetic 2-image dataset, 64px, batch 1, 2 optimizer steps: CPU `.venv` took `2.958s`; DirectML `.venv-gpu` took `2.807s`. This is roughly `1.05x` faster but too small and noisy to justify enabling DirectML by default. Treat DirectML training as usable for later investigation, not stable production guidance.
 - 2026-06-09: ROCm/PyTorch on Windows was evaluated from AMD docs and not installed. AMD documents PyTorch ROCm Windows wheels for Python 3.12 and driver `26.2.2`, but the current Windows PyTorch 7.2.1 support matrix lists `gfx1201`, `gfx1200`, `gfx1100`, and `gfx1101` Radeon hardware, not RX 6900 XT / `gfx1030`. Sources: https://rocm.docs.amd.com/projects/radeon-ryzen/en/latest/docs/install/installryz/windows/install-pytorch.html and https://rocm.docs.amd.com/projects/radeon-ryzen/en/latest/docs/compatibility/compatibilityrad/windows/windows_compatibility.html.
+- 2026-06-09: DirectML training spike was merged to `master` as experimental opt-in documentation and code. A dedicated `.venv-gpu` manual setup guide was added; no generated runtime artifacts are tracked.
 
 ## Current Next Step
 

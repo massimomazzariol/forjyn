@@ -105,6 +105,7 @@ The inherited upstream ONNX weights in `weights/` stay tracked as baseline/demo 
 - Upstream method: perceptual losses for real-time style transfer and super-resolution, plus instance normalization.
 - Core libraries: PyTorch, torchvision, ONNX, ONNX Runtime, Pillow, NumPy.
 - Optional Windows inference acceleration: ONNX Runtime DirectML, with CPU fallback.
+- Experimental Windows training acceleration: PyTorch DirectML is opt-in only and documented separately. CPU remains the default training path.
 - Training loss path may use VGG16 pretrained weights through torchvision.
 
 The upstream README states MIT licensing for the original project. See [docs/THIRD_PARTY.md](docs/THIRD_PARTY.md) for attribution, dependency notes, and current license boundaries.
@@ -116,6 +117,7 @@ Do not train or publish models from unclear third-party assets, commercial app p
 ## Documentation
 
 - [Workbench guide](docs/WORKBENCH.md)
+- [Experimental DirectML training](docs/GPU_TRAINING_EXPERIMENTAL.md)
 - [Project scope](docs/PROJECT_SCOPE.md)
 - [Model policy](docs/MODEL_POLICY.md)
 - [Third-party notes](docs/THIRD_PARTY.md)

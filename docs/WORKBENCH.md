@@ -159,6 +159,8 @@ DirectML has two separate roles:
 
 If the GUI reports CPU only, that is not automatically a bug. Keep CPU as the default unless a local isolated benchmark proves DirectML training is faster and stable for the chosen job size.
 
+Manual setup and test commands for the separate `.venv-gpu` experiment are in [Experimental DirectML Training](GPU_TRAINING_EXPERIMENTAL.md).
+
 ## WebP
 
 ForJyn accepts WebP only when Pillow reports WebP support in the current environment. If WebP fails, convert the image to JPG or PNG and rerun the job.

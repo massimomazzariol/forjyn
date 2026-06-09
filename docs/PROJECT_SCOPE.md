@@ -12,6 +12,7 @@ ForJyn is not a full Photoshop-like editor and not a cloud service. It does not 
 - Export dynamic H/W, shape-preserving ONNX models.
 - Validate and apply ONNX models locally.
 - Create review sheets for candidate screening.
+- Keep DirectML training experimental and opt-in unless a separate benchmark task proves it should change.
 - Keep generated artifacts under ignored `workbench/` unless a release process explicitly packages them.
 - Keep CI and local tests lightweight: path checks, CLI smoke checks, generator smoke checks, and repository hygiene only.
 
