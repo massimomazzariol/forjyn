@@ -93,6 +93,14 @@ Generator metadata and temporary sessions are technical runtime files under `wor
 
 The mode changes training time and candidate quality. It does not remove the need for human review.
 
+## Run Monitor And Cancellation
+
+The Workbench keeps the main run monitor intentionally compact. The always-visible counters show run state, current stage, elapsed time, total CPU load, process RAM in MB, style progress, and the output folder.
+
+Use `Run details` for job ID, PID, process CPU cores, ONNX provider, last ONNX apply time, and DirectML details. Live GPU utilization is not shown because it is not reliable without external tooling, and ONNX apply/validation can be too brief for a stable live reading.
+
+`Stop current job` cancels only the active backend job and its child processes. It should not close the GUI or terminate unrelated Python processes.
+
 ## Outputs
 
 Each completed job writes a folder under:
@@ -144,7 +152,7 @@ This keeps saved references, final candidates, contact sheets, outputs, models, 
 
 Training uses PyTorch CPU or CUDA, depending on the installed PyTorch build and local hardware. If the GUI reports CPU only, that is not automatically a bug.
 
-DirectML is optional and applies only to ONNX Runtime inference/validation in this workbench. If DirectML is missing, incompatible, or slower on a local machine, ForJyn keeps CPU fallback available. Training remains PyTorch CPU/CUDA.
+DirectML is optional and applies only to ONNX Runtime inference/validation and ONNX apply in this workbench. If DirectML is missing, incompatible, or slower on a local machine, ForJyn keeps CPU fallback available. Training remains PyTorch CPU/CUDA.
 
 ## WebP
 

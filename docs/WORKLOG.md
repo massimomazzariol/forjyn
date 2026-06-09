@@ -18,6 +18,7 @@
 - 2026-06-03: Local artifact cleanup and documentation simplification performed for the active Workbench branch.
 - 2026-06-03: Runtime path standardized to ignored `workbench/` with technical files under `_runtime/`.
 - 2026-06-03: GitHub presentation, Windows CI, local tests, and README polish prepared for publishing the ForJyn branch.
+- 2026-06-09: Workbench monitoring UI simplified after local DirectML/CPU training validation; main counters now emphasize state, stage, elapsed time, total CPU load, process RAM, style progress, and output location, with technical details kept behind a details control.
 
 ## Current Next Step
 

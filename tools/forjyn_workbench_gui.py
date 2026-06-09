@@ -70,7 +70,8 @@ QUALITY_DESCRIPTIONS = {
 
 IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"]
 PERCENT_LINE_RE = re.compile(r"^\s*\d+(?:\.\d+)?%\s*$")
-HEARTBEAT_INTERVAL_SECONDS = 10
+HEARTBEAT_INTERVAL_SECONDS = 60
+FALLBACK_HEARTBEAT_INTERVAL_SECONDS = 10
 CANCEL_TIMEOUT_SECONDS = 5
 
 
@@ -107,8 +108,6 @@ def format_elapsed(seconds):
 def format_ram_mb(value):
     if value is None:
         return "-"
-    if value >= 1024:
-        return f"{value / 1024:.1f} GB"
     return f"{value:.0f} MB"
 
 
@@ -137,7 +136,7 @@ def training_status_text(info):
 
 def onnx_status_text(info):
     if info.get("directml_available") == "yes":
-        return "GPU DirectML available"
+        return "DirectML ready"
     return "CPU only"
 
 
@@ -232,7 +231,7 @@ class ForJynWorkbenchApp:
         self.process_pid = StringVar(value="PID: -")
         self.cpu_load = StringVar(value="CPU load: -")
         self.process_cpu = StringVar(value="Process CPU: -")
-        self.process_ram = StringVar(value="RAM process: -")
+        self.process_ram = StringVar(value="RAM: -")
         directml_text = "yes" if self.env_info.get("directml_available") == "yes" else "no"
         self.gpu_status = StringVar(value=f"GPU status: DirectML available {directml_text}; usage unavailable")
         self.onnx_provider = StringVar(value="ONNX provider: -")
@@ -240,7 +239,6 @@ class ForJynWorkbenchApp:
         self.output_status = StringVar(value=f"Output: {rel(OUTPUTS_DIR)}")
         self.output_image_status = StringVar(value="Output image: -")
         self.preserve_status = StringVar(value="Preserves size: -")
-        self.quality_status = StringVar(value="Quality status: needs human review")
         self.results_status = StringVar(value="Results: none yet")
         self.style_paths = []
         self.completed_dirs = []
@@ -255,6 +253,8 @@ class ForJynWorkbenchApp:
         self._last_cpu_sample = None
         self._last_heartbeat_at = 0.0
         self._details_visible = False
+        self._monitor_details_visible = False
+        self.monitor_details = StringVar(value="")
         self.running = False
         self.log_queue = queue.Queue()
 
@@ -346,7 +346,7 @@ class ForJynWorkbenchApp:
         style_box.columnconfigure(0, weight=1)
         style_box.rowconfigure(1, weight=1)
         ttk.Label(style_box, text="Reference images can be loaded from files or generated locally inside ForJyn.").grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 6))
-        self.style_list = ttk.Treeview(style_box, columns=("file", "folder"), show="headings", height=5)
+        self.style_list = ttk.Treeview(style_box, columns=("file", "folder"), show="headings", height=4)
         self.style_list.heading("file", text="File")
         self.style_list.heading("folder", text="Folder")
         self.style_list.column("file", width=220, stretch=True)
@@ -405,6 +405,7 @@ class ForJynWorkbenchApp:
         self.action_status_label.grid(row=0, column=4, sticky="e")
         self.progress = ttk.Progressbar(generate_box, mode="indeterminate")
         self.progress.grid(row=1, column=0, sticky="ew", pady=(10, 0))
+        self.progress.grid_remove()
 
         ttk.Label(generate_box, text="Run Monitor", font=("Segoe UI", 10, "bold")).grid(row=2, column=0, sticky="w", pady=(10, 4))
         monitor = ttk.Frame(generate_box)
@@ -415,52 +416,48 @@ class ForJynWorkbenchApp:
             self.progress_status,
             self.current_stage,
             self.elapsed_time,
-            self.current_job,
-            self.current_style,
-            self.process_pid,
             self.cpu_load,
-            self.process_cpu,
             self.process_ram,
-            self.gpu_status,
-            self.onnx_provider,
-            self.last_apply_time,
             self.style_progress,
         ]
         for index, variable in enumerate(monitor_items):
             row = index // 3
             column = index % 3
             ttk.Label(monitor, textvariable=variable).grid(row=row, column=column, sticky="w", padx=(0, 12), pady=2)
-        ttk.Label(monitor, textvariable=self.output_status).grid(row=5, column=0, columnspan=3, sticky="w", padx=(0, 12), pady=2)
+        ttk.Label(monitor, textvariable=self.output_status).grid(row=2, column=0, columnspan=3, sticky="w", padx=(0, 12), pady=2)
+        self.monitor_details_button = ttk.Button(generate_box, text="Run details", command=self.toggle_monitor_details)
+        self.monitor_details_button.grid(row=4, column=0, sticky="w", pady=(8, 0))
+        self.monitor_details_label = ttk.Label(generate_box, textvariable=self.monitor_details, style="Muted.TLabel", wraplength=900)
 
-        ttk.Label(generate_box, text="Results", font=("Segoe UI", 10, "bold")).grid(row=4, column=0, sticky="w", pady=(10, 4))
-        results = ttk.Frame(generate_box)
-        results.grid(row=5, column=0, sticky="ew")
+        self.results_box = ttk.LabelFrame(generate_box, text="Results", padding=8)
+        self.results_box.grid(row=6, column=0, sticky="ew", pady=(10, 0))
+        self.results_box.columnconfigure(0, weight=1)
+        results = ttk.Frame(self.results_box)
+        results.grid(row=0, column=0, sticky="ew")
         self.open_result_image_button = ttk.Button(results, text="Open output image", command=self.open_output_image, state=DISABLED)
         self.open_result_image_button.grid(row=0, column=0, padx=(0, 8), pady=2)
         self.open_output_button = ttk.Button(results, text="Open output folder", command=self.open_output, state=DISABLED)
         self.open_output_button.grid(row=0, column=1, padx=(0, 8), pady=2)
         self.open_onnx_folder_button = ttk.Button(results, text="Open ONNX folder", command=self.open_onnx_folder, state=DISABLED)
         self.open_onnx_folder_button.grid(row=0, column=2, padx=(0, 8), pady=2)
-        self.review_sheet_button = ttk.Button(results, text="Create review sheet", command=self.create_review_sheet, state=DISABLED)
-        self.review_sheet_button.grid(row=0, column=3, padx=(0, 8), pady=2)
         self.copy_onnx_button = ttk.Button(results, text="Copy ONNX path", command=self.copy_onnx_path, state=DISABLED)
-        self.copy_onnx_button.grid(row=0, column=4, padx=(0, 8), pady=2)
-        results_details = ttk.Frame(generate_box)
-        results_details.grid(row=6, column=0, sticky="ew", pady=(4, 0))
+        self.copy_onnx_button.grid(row=0, column=3, padx=(0, 8), pady=2)
+        results_details = ttk.Frame(self.results_box)
+        results_details.grid(row=1, column=0, sticky="ew", pady=(4, 0))
         for column in range(2):
             results_details.columnconfigure(column, weight=1)
         ttk.Label(results_details, textvariable=self.output_image_status, style="Muted.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 12), pady=1)
         ttk.Label(results_details, textvariable=self.onnx_provider, style="Muted.TLabel").grid(row=0, column=1, sticky="w", pady=1)
         ttk.Label(results_details, textvariable=self.last_apply_time, style="Muted.TLabel").grid(row=1, column=0, sticky="w", padx=(0, 12), pady=1)
         ttk.Label(results_details, textvariable=self.preserve_status, style="Muted.TLabel").grid(row=1, column=1, sticky="w", pady=1)
-        ttk.Label(results_details, textvariable=self.quality_status, style="Warning.TLabel").grid(row=2, column=0, columnspan=2, sticky="w", pady=1)
-        ttk.Label(generate_box, textvariable=self.results_status, style="Muted.TLabel").grid(row=7, column=0, sticky="w", pady=(4, 0))
+        ttk.Label(self.results_box, textvariable=self.results_status, style="Muted.TLabel").grid(row=2, column=0, sticky="w", pady=(4, 0))
+        self.results_box.grid_remove()
 
         log_box = ttk.LabelFrame(frame, text="Log", padding=8)
         log_box.grid(row=7, column=0, sticky="nsew", pady=(8, 0))
         log_box.columnconfigure(0, weight=1)
         log_box.rowconfigure(0, weight=1)
-        self.log = ScrolledText(log_box, height=9, wrap="word", font=("Consolas", 10))
+        self.log = ScrolledText(log_box, height=6, wrap="word", font=("Consolas", 10))
         self.log.grid(row=0, column=0, sticky="nsew")
         self.log.tag_configure("warning", foreground="#8A5A00")
         self.log.tag_configure("complete", foreground="#0B6B3A")
@@ -505,6 +502,33 @@ class ForJynWorkbenchApp:
         else:
             self.env_details_label.grid_remove()
             self.env_details_button.configure(text="Environment details")
+
+    def _update_monitor_details(self):
+        directml_text = "yes" if self.env_info.get("directml_available") == "yes" else "no"
+        self.monitor_details.set(
+            " | ".join(
+                [
+                    self.current_job.get(),
+                    self.current_style.get(),
+                    self.process_pid.get(),
+                    self.process_cpu.get(),
+                    self.onnx_provider.get(),
+                    self.last_apply_time.get(),
+                    f"DirectML available: {directml_text}",
+                    "GPU usage: unavailable",
+                ]
+            )
+        )
+
+    def toggle_monitor_details(self):
+        self._monitor_details_visible = not self._monitor_details_visible
+        if self._monitor_details_visible:
+            self._update_monitor_details()
+            self.monitor_details_label.grid(row=5, column=0, sticky="ew", pady=(4, 0))
+            self.monitor_details_button.configure(text="Hide run details")
+        else:
+            self.monitor_details_label.grid_remove()
+            self.monitor_details_button.configure(text="Run details")
 
     def _write_initial_log(self):
         self._append_log("ForJyn Workbench ready.\n")
@@ -606,11 +630,16 @@ class ForJynWorkbenchApp:
         self.open_output_button.configure(state=NORMAL if ready and has_output_dir else DISABLED)
         self.open_onnx_folder_button.configure(state=NORMAL if ready and has_onnx else DISABLED)
         self.copy_onnx_button.configure(state=NORMAL if ready and has_onnx else DISABLED)
-        self.review_sheet_button.configure(state=NORMAL if ready and has_completed else DISABLED)
+
+        has_result = has_image or has_onnx or has_output_dir
+        if ready and has_result:
+            self.results_box.grid()
+        else:
+            self.results_box.grid_remove()
 
         if self.running:
             self.results_status.set("Results: running")
-        elif has_image or has_onnx or has_output_dir:
+        elif has_result:
             self.results_status.set("Results: latest job output available")
         else:
             self.results_status.set("Results: none yet")
@@ -668,14 +697,16 @@ class ForJynWorkbenchApp:
         ram_text = format_ram_mb(ram_mb)
         self.cpu_load.set(f"CPU load: {cpu_load_text}")
         self.process_cpu.set(f"Process CPU: {process_cpu_text}")
-        self.process_ram.set(f"RAM process: {ram_text}")
+        self.process_ram.set(f"RAM: {ram_text}")
+        self._update_monitor_details()
 
         now = time.monotonic()
-        if pid and now - self._last_heartbeat_at >= HEARTBEAT_INTERVAL_SECONDS:
+        heartbeat_interval = FALLBACK_HEARTBEAT_INTERVAL_SECONDS if system_cpu is None and ram_mb is None else HEARTBEAT_INTERVAL_SECONDS
+        if pid and now - self._last_heartbeat_at >= heartbeat_interval:
             self._last_heartbeat_at = now
             stage = self.current_stage.get().replace("Stage: ", "").lower()
             self._append_log(
-                f"Still running | elapsed {elapsed} | CPU load {cpu_load_text} | process {process_cpu_text} | RAM {ram_text} | stage {stage}\n"
+                f"Still running | elapsed {elapsed} | CPU {cpu_load_text} | RAM {ram_text} | stage {stage}\n"
             )
         self.root.after(1000, self._refresh_run_monitor)
 
@@ -774,8 +805,10 @@ class ForJynWorkbenchApp:
                     self.current_stage.set(f"Stage: {payload}")
                 elif kind == "current_job":
                     self.current_job.set(payload)
+                    self._update_monitor_details()
                 elif kind == "current_style":
                     self.current_style.set(payload)
+                    self._update_monitor_details()
                 elif kind == "style_progress":
                     self.style_progress.set(payload)
                 elif kind == "runtime_output":
@@ -794,24 +827,29 @@ class ForJynWorkbenchApp:
                     self.gpu_status.set(
                         f"GPU status: DirectML available {self.env_info.get('directml_available', 'no')}; usage unavailable"
                     )
+                    self._update_monitor_details()
                 elif kind == "apply_seconds":
                     self.last_apply_time.set(f"Last ONNX apply: {payload}s" if payload else "Last ONNX apply: -")
+                    self._update_monitor_details()
                 elif kind == "preserves_size":
                     value = "yes" if str(payload).strip().lower() in {"1", "true", "yes"} else "no"
                     self.preserve_status.set(f"Preserves size: {value}")
                 elif kind == "process_pid":
                     self.process_pid.set(f"PID: {payload}" if payload else "PID: -")
+                    self._update_monitor_details()
                 elif kind == "done":
                     was_cancelled = payload == "cancelled"
                     was_successful = payload is True or payload == "completed"
                     self.running = False
                     self.current_process = None
                     self.progress.stop()
+                    self.progress.configure(value=0)
+                    self.progress.grid_remove()
                     self._set_inputs_state(NORMAL)
                     self.process_pid.set("PID: -")
                     self.cpu_load.set("CPU load: -")
                     self.process_cpu.set("Process CPU: -")
-                    self.process_ram.set("RAM process: -")
+                    self.process_ram.set("RAM: -")
                     self._update_elapsed_status()
                     final_status = "Cancelled" if was_cancelled else "Completed" if was_successful else "Failed"
                     self._set_progress_status(final_status)
@@ -827,6 +865,7 @@ class ForJynWorkbenchApp:
                     self.cancel_requested = False
                     self._update_start_state()
                     self._update_results_state()
+                    self._update_monitor_details()
         except queue.Empty:
             pass
         self.root.after(100, self._poll_log_queue)
@@ -865,6 +904,7 @@ class ForJynWorkbenchApp:
         self._last_cpu_sample = None
         self._last_heartbeat_at = 0.0
         self.progress.configure(mode="indeterminate")
+        self.progress.grid()
         self.progress.start(12)
         self._set_progress_status("Running")
         self.current_stage.set("Stage: Starting")
@@ -875,7 +915,7 @@ class ForJynWorkbenchApp:
         self.process_pid.set("PID: -")
         self.cpu_load.set("CPU load: -")
         self.process_cpu.set("Process CPU: -")
-        self.process_ram.set("RAM process: -")
+        self.process_ram.set("RAM: -")
         directml_text = "yes" if self.env_info.get("directml_available") == "yes" else "no"
         self.gpu_status.set(f"GPU status: DirectML available {directml_text}; usage unavailable")
         self.onnx_provider.set("ONNX provider: -")
@@ -883,9 +923,9 @@ class ForJynWorkbenchApp:
         self.output_status.set(f"Output: {rel(OUTPUTS_DIR)}")
         self.output_image_status.set("Output image: -")
         self.preserve_status.set("Preserves size: -")
-        self.quality_status.set("Quality status: needs human review")
         self._set_inputs_state(DISABLED)
         self._update_start_state()
+        self._update_monitor_details()
         self._refresh_run_monitor()
         steps = QUALITY_MODES[self.quality.get()]
         self._append_log(
@@ -1280,8 +1320,6 @@ class ReferenceGeneratorWindow:
         self.reference_progress.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(6, 2))
         self.reference_progress.grid_remove()
         ttk.Label(reference_monitor, textvariable=self.reference_elapsed, style="Muted.TLabel").grid(row=2, column=0, columnspan=2, sticky="w")
-        ttk.Label(reference_monitor, textvariable=self.reference_cpu_load, style="Muted.TLabel").grid(row=3, column=0, columnspan=2, sticky="w")
-        ttk.Label(reference_monitor, textvariable=self.reference_ram, style="Muted.TLabel").grid(row=4, column=0, columnspan=2, sticky="w")
         ttk.Label(controls, textvariable=self.status, wraplength=290).grid(row=button_row + 5, column=0, columnspan=3, sticky="w", pady=(12, 0))
 
         ttk.Label(preview_box, text="Generated variations", font=("Segoe UI", 11, "bold")).grid(row=0, column=0, sticky="w", pady=(0, 8))

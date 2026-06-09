@@ -31,7 +31,7 @@ class WorkbenchGuiMonitorTests(unittest.TestCase):
     def test_monitor_metric_formatting_is_human_readable(self):
         self.assertEqual(format_cpu_load(62.4), "62%")
         self.assertEqual(format_process_cores(1580.0), "15.8 cores")
-        self.assertEqual(format_ram_mb(1843), "1.8 GB")
+        self.assertEqual(format_ram_mb(1843), "1843 MB")
         self.assertEqual(format_cpu_load(None), "-")
         self.assertEqual(format_process_cores(None), "-")
 
