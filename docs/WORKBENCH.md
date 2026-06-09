@@ -161,6 +161,8 @@ If the GUI reports CPU only, that is not automatically a bug. Keep CPU as the de
 
 Manual setup and test commands for the separate `.venv-gpu` experiment are in [Experimental DirectML Training](GPU_TRAINING_EXPERIMENTAL.md).
 
+ONNX export supports both newer PyTorch builds with `dynamic_shapes` and older compatible builds with legacy `dynamic_axes`. If training completes but export/apply fails, use `recover-job` with the existing checkpoint instead of retraining.
+
 ## WebP
 
 ForJyn accepts WebP only when Pillow reports WebP support in the current environment. If WebP fails, convert the image to JPG or PNG and rerun the job.

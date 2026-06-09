@@ -1,5 +1,6 @@
 import argparse
 import hashlib
+import inspect
 import json
 import subprocess
 import sys
@@ -152,9 +153,41 @@ def build_wrapper(transformer):
     return ShapePreservingTransformerNet(transformer).eval()
 
 
+def supports_export_keyword(export_func, keyword):
+    try:
+        return keyword in inspect.signature(export_func).parameters
+    except (TypeError, ValueError):
+        return False
+
+
+def build_onnx_export_kwargs(export_func, dim_factory=None, opset_version=18):
+    kwargs = {
+        "input_names": ["input"],
+        "output_names": ["output"],
+        "opset_version": opset_version,
+    }
+    if supports_export_keyword(export_func, "dynamic_shapes"):
+        if dim_factory is None:
+            from torch.export import Dim
+
+            dim_factory = Dim
+        kwargs["dynamic_shapes"] = {
+            "input": {
+                0: dim_factory("batch", min=1),
+                2: dim_factory("height", min=16),
+                3: dim_factory("width", min=16),
+            }
+        }
+    else:
+        kwargs["dynamic_axes"] = {
+            "input": {0: "batch", 2: "height", 3: "width"},
+            "output": {0: "batch", 2: "height", 3: "width"},
+        }
+    return kwargs
+
+
 def cmd_export(args):
     import torch
-    from torch.export import Dim
 
     manifest = load_manifest(args.manifest)
     model = find_model(manifest, args.model_id)
@@ -168,22 +201,8 @@ def cmd_export(args):
     wrapper = build_wrapper(transformer)
     export_path.parent.mkdir(parents=True, exist_ok=True)
     dummy = torch.randn(1, 3, 256, 320)
-
-    torch.onnx.export(
-        wrapper,
-        (dummy,),
-        str(export_path),
-        input_names=["input"],
-        output_names=["output"],
-        dynamic_shapes={
-            "input": {
-                0: Dim("batch", min=1),
-                2: Dim("height", min=16),
-                3: Dim("width", min=16),
-            }
-        },
-        opset_version=int(model["export"].get("opset", 18)),
-    )
+    export_kwargs = build_onnx_export_kwargs(torch.onnx.export, opset_version=int(model["export"].get("opset", 18)))
+    torch.onnx.export(wrapper, (dummy,), str(export_path), **export_kwargs)
 
     metadata = {
         "model_id": model["id"],

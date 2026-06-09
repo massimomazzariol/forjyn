@@ -24,6 +24,7 @@
 - 2026-06-09: Micro benchmark, cache warm, synthetic 2-image dataset, 64px, batch 1, 2 optimizer steps: CPU `.venv` took `2.958s`; DirectML `.venv-gpu` took `2.807s`. This is roughly `1.05x` faster but too small and noisy to justify enabling DirectML by default. Treat DirectML training as usable for later investigation, not stable production guidance.
 - 2026-06-09: ROCm/PyTorch on Windows was evaluated from AMD docs and not installed. AMD documents PyTorch ROCm Windows wheels for Python 3.12 and driver `26.2.2`, but the current Windows PyTorch 7.2.1 support matrix lists `gfx1201`, `gfx1200`, `gfx1100`, and `gfx1101` Radeon hardware, not RX 6900 XT / `gfx1030`. Sources: https://rocm.docs.amd.com/projects/radeon-ryzen/en/latest/docs/install/installryz/windows/install-pytorch.html and https://rocm.docs.amd.com/projects/radeon-ryzen/en/latest/docs/compatibility/compatibilityrad/windows/windows_compatibility.html.
 - 2026-06-09: DirectML training spike was merged to `master` as experimental opt-in documentation and code. A dedicated `.venv-gpu` manual setup guide was added; no generated runtime artifacts are tracked.
+- 2026-06-09: ONNX export compatibility was fixed for the `.venv-gpu` DirectML environment using PyTorch `2.4.1`, whose `torch.onnx.export` does not accept `dynamic_shapes`. ForJyn now detects export keyword support and falls back to legacy `dynamic_axes` while preserving dynamic H/W output. Job `20260609-131315-neon-bloom-1618142090-05` was recovered from its existing checkpoint without retraining.
 
 ## Current Next Step
 

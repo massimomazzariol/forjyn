@@ -2,6 +2,7 @@ import argparse
 import contextlib
 import hashlib
 import io
+import inspect
 import json
 import math
 import os
@@ -511,9 +512,43 @@ def shape_preserving_wrapper(transformer):
     return ShapePreservingTransformerNet(transformer).eval()
 
 
+def supports_export_keyword(export_func, keyword):
+    try:
+        return keyword in inspect.signature(export_func).parameters
+    except (TypeError, ValueError):
+        return False
+
+
+def build_onnx_export_kwargs(export_func, dim_factory=None, opset_version=18):
+    kwargs = {
+        "input_names": ["input"],
+        "output_names": ["output"],
+        "opset_version": opset_version,
+        "verbose": False,
+    }
+    if supports_export_keyword(export_func, "dynamic_shapes"):
+        if dim_factory is None:
+            from torch.export import Dim
+
+            dim_factory = Dim
+        kwargs["dynamic_shapes"] = {
+            "input": {
+                0: dim_factory("batch", min=1),
+                2: dim_factory("height", min=16),
+                3: dim_factory("width", min=16),
+            }
+        }
+        return kwargs, "dynamic_shapes"
+
+    kwargs["dynamic_axes"] = {
+        "input": {0: "batch", 2: "height", 3: "width"},
+        "output": {0: "batch", 2: "height", 3: "width"},
+    }
+    return kwargs, "dynamic_axes"
+
+
 def export_one(args):
     import torch
-    from torch.export import Dim
 
     path = model_dir(args.model_dir)
     checkpoint = checkpoint_path(path)
@@ -522,19 +557,7 @@ def export_one(args):
     primary = path / f"{path.name}.onnx"
     alias = path / "model.onnx"
     started = time.time()
-    export_kwargs = {
-        "input_names": ["input"],
-        "output_names": ["output"],
-        "dynamic_shapes": {
-            "input": {
-                0: Dim("batch", min=1),
-                2: Dim("height", min=16),
-                3: Dim("width", min=16),
-            }
-        },
-        "opset_version": 18,
-        "verbose": False,
-    }
+    export_kwargs, export_dynamic_mode = build_onnx_export_kwargs(torch.onnx.export, opset_version=18)
     export_log = io.StringIO()
     with contextlib.redirect_stdout(export_log), contextlib.redirect_stderr(export_log):
         try:
@@ -558,6 +581,7 @@ def export_one(args):
         "load_unexpected_keys": load_result.unexpected_keys,
         "seconds": round(time.time() - started, 3),
         "wrapper": "dynamic final crop to input H/W",
+        "dynamic_export": export_dynamic_mode,
         "export_log_captured": bool(export_log.getvalue().strip()),
     }
     write_json(path / "export-metadata.json", payload)
